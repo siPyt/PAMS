@@ -5,7 +5,7 @@
 set -u
 
 echo "=== 1. Install systemd unit files ==="
-for u in pams-ml.service pams-sim.service pams-bms.service; do
+for u in pams-ml.service pams-bms.service; do
     install -m 644 "/home/admin/$u" "/etc/systemd/system/$u" && echo "  installed $u"
 done
 systemctl daemon-reload
@@ -13,9 +13,8 @@ systemctl daemon-reload
 echo "=== 2. Ensure Docker starts on boot (stack has restart policies) ==="
 systemctl enable docker 2>/dev/null && echo "  docker enabled" || echo "  (docker already enabled)"
 
-echo "=== 3. Enable + start ML and simulator ==="
+echo "=== 3. Enable + start ML service ==="
 systemctl enable --now pams-ml.service && echo "  pams-ml up"
-systemctl enable --now pams-sim.service && echo "  pams-sim up"
 
 echo "=== 4. Keep BMS node installed but DISABLED (enable when wired) ==="
 systemctl disable pams-bms.service 2>/dev/null || true

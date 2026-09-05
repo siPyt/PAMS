@@ -30,7 +30,6 @@ The Docker stack (MQTT, Node-RED, InfluxDB, Grafana) and the Python services run
 | `pams_ml_service.py`                       | MQTT bridge: raw readings → ML score → scored stream                            |
 | `bms_ip_node.py`                           | BACnet/IP BMS node (read → score → write → MQTT)                                |
 | `bms_mstp_node.py`                         | BACnet MS/TP BMS node (via bacnet-stack tools)                                  |
-| `mock_freezer_data.py`                     | 30-freezer simulator → MQTT (demo/bench)                                        |
 | `node-red-data/flows.json`                 | Node-RED flow: MQTT → InfluxDB (raw + ml_scores)                                |
 | `mosquitto/config/mosquitto.conf`          | MQTT broker config                                                              |
 | `systemd/*.service`, `pams.env`            | Boot-persistent services                                                        |
@@ -41,8 +40,8 @@ The Docker stack (MQTT, Node-RED, InfluxDB, Grafana) and the Python services run
 ## Quick start (on the Pi)
 
 ```bash
-# Demo data source + ML (already systemd services after setup):
-sudo systemctl status pams-sim pams-ml
+# ML scoring service (systemd, boot-persistent):
+sudo systemctl status pams-ml
 
 # Real BMS over MS/TP — configure & run:
 ~/pams_env/bin/python ~/pams_control.py       # menu: baud sweep, discover, run

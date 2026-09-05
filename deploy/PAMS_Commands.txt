@@ -16,9 +16,6 @@ CONTROL PANEL  (main MS/TP tool)
   ~/pams_env/bin/python ~/pams_control.py test         # one test temperature read
   ~/pams_env/bin/python ~/pams_control.py run          # start polling (headless)
 
-FREEZER SIMULATOR  (30 fake freezers -> MQTT -> Grafana demo)
-  ~/pams_env/bin/python ~/mock_freezer_data.py
-
 ML SCORING SERVICE  (raw readings -> IsolationForest -> pams/scored/<unit> -> InfluxDB)
   ~/pams_env/bin/python ~/pams_ml_service.py
   # quick demo (short baseline so it scores in ~1 min instead of a week):
@@ -64,6 +61,5 @@ ORIGINAL MS/TP SCRIPT  (DEPRECATED - broken imports, will crash; do not use)
 
 
 ------------------------------  DAY-TO-DAY  ------------------------------------
-  Freezer demo      ->  mock_freezer_data.py
   Real BMS (RS-485) ->  pams_control.py   (menu)
 ==============================================================
