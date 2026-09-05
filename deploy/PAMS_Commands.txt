@@ -1,0 +1,69 @@
+==============================================================
+  PAMS  ·  COMMAND SHEET  (all run on the Pi)
+==============================================================
+  First connect from your laptop:   ssh admin@alpha-p
+  All programs use the venv Python:  ~/pams_env/bin/python
+==============================================================
+
+
+------------------------------  CURRENT / ACTIVE  ------------------------------
+
+CONTROL PANEL  (main MS/TP tool)
+  ~/pams_env/bin/python ~/pams_control.py              # interactive menu
+  ~/pams_env/bin/python ~/pams_control.py sweep        # baud sweep
+  ~/pams_env/bin/python ~/pams_control.py discover     # find devices (Who-Is)
+  ~/pams_env/bin/python ~/pams_control.py epics 1234   # dump device 1234's points
+  ~/pams_env/bin/python ~/pams_control.py test         # one test temperature read
+  ~/pams_env/bin/python ~/pams_control.py run          # start polling (headless)
+
+FREEZER SIMULATOR  (30 fake freezers -> MQTT -> Grafana demo)
+  ~/pams_env/bin/python ~/mock_freezer_data.py
+
+ML SCORING SERVICE  (raw readings -> IsolationForest -> pams/scored/<unit> -> InfluxDB)
+  ~/pams_env/bin/python ~/pams_ml_service.py
+  # quick demo (short baseline so it scores in ~1 min instead of a week):
+  PAMS_ML_BASELINE=60 ~/pams_env/bin/python ~/pams_ml_service.py
+
+BMS NODE - BACnet/IP  (laptop/bench test: read -> score -> write -> MQTT)
+  BIND_ADDR="192.168.137.226/24" TARGET_ADDR="192.168.137.1:56662" \
+    UNIT_ID="FRZ-BMS-01" DOOR_ENABLE=0 WRITE_ENABLE=0 \
+    ~/pams_env/bin/python ~/bms_ip_node.py
+
+BMS NODE - BACnet MS/TP  (standalone; the control panel does this more easily)
+  MSTP_BAUD=38400 MSTP_MAC=45 TARGET_DEVICE=1 TARGET_MAC=01 \
+    TEMP_OBJ="analog-input:1" SCORE_OBJ="analog-value:50" \
+    ~/pams_env/bin/python ~/bms_mstp_node.py
+
+
+------------------------------  LEGACY (reference)  ----------------------------
+
+ORIGINAL IP READER  (older, temp-only, no MQTT)
+  ~/pams_env/bin/python ~/ip_pilot_node.py
+
+ORIGINAL MS/TP SCRIPT  (DEPRECATED - broken imports, will crash; do not use)
+  # ~/pams_env/bin/python ~/bms_pilot_node.py
+
+
+------------------------------  RAW BACnet TOOLS  ------------------------------
+  (used under the hood by pams_control.py; MS/TP env must be set)
+
+  export BACNET_DATALINK=mstp BACNET_IFACE=/dev/ttyUSB0 \
+         BACNET_MSTP_BAUD=38400 BACNET_MSTP_MAC=45 BACNET_MAX_MASTER=127
+  ~/bacnet-stack/bin/bacwi                              # Who-Is (discover)
+  ~/bacnet-stack/bin/bacepics 1234                      # dump device 1234
+  ~/bacnet-stack/bin/bacrp 1234 analog-input 1 present-value   # read
+  ~/bacnet-stack/bin/bacwp 1234 analog-value 50 present-value 8 -1 4 87.5  # write
+
+
+------------------------------  DOCKER STACK (field-gateway)  ------------------
+  cd ~/field-gateway
+  docker compose ps                                    # status
+  docker compose restart nodered                       # reload Node-RED
+  docker compose restart mqtt nodered                  # reload broker + flows
+  docker exec field-mqtt mosquitto_sub -t 'pams/freezers/+' -v   # watch MQTT
+
+
+------------------------------  DAY-TO-DAY  ------------------------------------
+  Freezer demo      ->  mock_freezer_data.py
+  Real BMS (RS-485) ->  pams_control.py   (menu)
+==============================================================

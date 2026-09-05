@@ -1,0 +1,19 @@
+[Unit]
+# Real BMS MS/TP polling node. Leave DISABLED until the RS-485 wires are landed
+# and ~/pams_mstp.conf is configured (via pams_control.py). Do NOT run this at the
+# same time as pams-sim (they publish to the same MQTT topics).
+Description=PAMS BMS MS/TP polling node
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin
+EnvironmentFile=-/home/admin/pams.env
+ExecStart=/home/admin/pams_env/bin/python /home/admin/pams_control.py run
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

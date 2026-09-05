@@ -1,0 +1,76 @@
+==============================================================
+  PAMS Pi  ·  BACnet MS/TP Control Panel  ·  QUICK CHEAT SHEET
+==============================================================
+
+START IT
+--------
+1) From your laptop:      ssh admin@alpha-p
+2) On the Pi, run:        ~/pams_env/bin/python ~/pams_control.py
+3) Type a number/letter + Enter to pick a menu item.
+   Quit anytime with:     q         Stop polling with: Ctrl-C
+
+THE MENU
+--------
+  1) Show current config
+  2) Edit serial / MS/TP ...... baud rate, this Pi's MAC
+  3) Edit target controller ... Siemens device #, its MAC
+  4) Edit points & write-back . temp / door / score object IDs
+  5) Edit MQTT & polling
+  6) Discover devices ......... list controllers on the trunk
+  b) Baud sweep ............... auto-find the trunk baud rate
+  7) Dump a device's objects .. list ALL points on one device
+  8) Test read temperature .... one-shot read to confirm
+  9) Start polling ............ run continuously (Ctrl-C stops)
+  s) Save config     q) Quit
+
+--------------------------------------------------------------
+DO THIS, IN THIS ORDER (once the wires are landed)
+--------------------------------------------------------------
+  STEP 1   Press  b    -> baud sweep. When it finds the trunk,
+                          type  y  to save the baud.
+
+  STEP 2   Press  6    -> discover. Write down the freezer
+                          controller's DEVICE # and MAC.
+
+  STEP 3   Press  7    -> type that DEVICE #. Read the list to
+                          find TEMPERATURE, DOOR, SCORE points.
+
+  STEP 4   Press  3    -> enter the freezer DEVICE # and MAC.
+
+  STEP 5   Press  4    -> enter the temp / door / score IDs
+                          (format is  type:instance,
+                           e.g.  analog-input:1 ).
+
+  STEP 6   Press  s    -> save.
+
+  STEP 7   Press  8    -> test read. Should print a temperature.
+
+  STEP 8   Press  9    -> start polling. Leave it running.
+                          (Ctrl-C to stop.)
+
+--------------------------------------------------------------
+MENTAL MODEL
+--------------------------------------------------------------
+   b, 6, 7  =  FIND OUT what's on the Siemens network
+   2, 3, 4  =  TYPE IN those values
+   s        =  SAVE
+   8        =  TEST      9 = GO
+
+--------------------------------------------------------------
+IF NOTHING IS FOUND (baud sweep shows 0 everywhere)
+--------------------------------------------------------------
+   * Swap the two data wires (A <-> B)  <- most common fix
+   * Confirm GND / reference is connected
+   * Trunk must be BACnet MS/TP (not Siemens P1/P2 FLN)
+   * Our Pi MAC must be unused and <= max_master
+
+--------------------------------------------------------------
+ONE-TIME SETUP (paste once, needs your password)
+--------------------------------------------------------------
+  echo 'ACTION=="add", SUBSYSTEM=="usb-serial", DRIVER=="ftdi_sio", ATTR{latency_timer}="1"' | sudo tee /etc/udev/rules.d/99-ftdi-latency.rules
+  sudo udevadm control --reload && sudo udevadm trigger
+  sudo setcap 'cap_sys_nice=eip' ~/bacnet-stack/bin/bacrp ~/bacnet-stack/bin/bacwp ~/bacnet-stack/bin/bacwi ~/bacnet-stack/bin/bacepics
+
+==============================================================
+  Config file (advanced): ~/pams_mstp.conf   (edit with: nano)
+==============================================================

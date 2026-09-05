@@ -1,0 +1,213 @@
+[
+    {
+        "id": "pams-tab",
+        "type": "tab",
+        "label": "PAMS Ingest",
+        "disabled": false,
+        "info": "MQTT (pams/freezers/+) -> build InfluxDB point -> write to bucket 'freezer_data'."
+    },
+    {
+        "id": "mqtt-broker",
+        "type": "mqtt-broker",
+        "name": "field-mqtt",
+        "broker": "mqtt",
+        "port": "1883",
+        "clientid": "node-red-pams",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "willMsg": {},
+        "sessionExpiry": ""
+    },
+    {
+        "id": "influx-config",
+        "type": "influxdb",
+        "hostname": "127.0.0.1",
+        "port": "8086",
+        "protocol": "http",
+        "database": "database",
+        "name": "field-influxdb",
+        "usetls": false,
+        "tls": "",
+        "influxdbVersion": "2.0",
+        "url": "http://influxdb:8086",
+        "rejectUnauthorized": true
+    },
+    {
+        "id": "mqtt-in",
+        "type": "mqtt in",
+        "z": "pams-tab",
+        "name": "pams/freezers/+",
+        "topic": "pams/freezers/+",
+        "qos": "0",
+        "datatype": "json",
+        "broker": "mqtt-broker",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 150,
+        "y": 160,
+        "wires": [
+            [
+                "fn-build"
+            ]
+        ]
+    },
+    {
+        "id": "fn-build",
+        "type": "function",
+        "z": "pams-tab",
+        "name": "build influx point",
+        "func": "const r = msg.payload;\nif (!r || typeof r !== 'object') {\n    return null;\n}\nmsg.payload = [\n    {\n        temperature: Number(r.temperature),\n        door_status: Number(r.door_status),\n        health_score: Number(r.health_score)\n    },\n    {\n        unit_id: String(r.unit_id)\n    }\n];\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 400,
+        "y": 160,
+        "wires": [
+            [
+                "influx-out",
+                "dbg"
+            ]
+        ]
+    },
+    {
+        "id": "influx-out",
+        "type": "influxdb out",
+        "z": "pams-tab",
+        "influxdb": "influx-config",
+        "name": "write readings",
+        "measurement": "readings",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "PAMS_demo",
+        "bucket": "freezer_data",
+        "x": 660,
+        "y": 140,
+        "wires": []
+    },
+    {
+        "id": "dbg",
+        "type": "debug",
+        "z": "pams-tab",
+        "name": "readings",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 650,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "comment-info",
+        "type": "comment",
+        "z": "pams-tab",
+        "name": "Enter InfluxDB token in the 'field-influxdb' config node, then Deploy",
+        "info": "Open the 'write readings' node -> pencil next to Server -> Token = your InfluxDB API token (org PAMS_demo). Deploy.",
+        "x": 340,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "mqtt-in-scored",
+        "type": "mqtt in",
+        "z": "pams-tab",
+        "name": "pams/scored/+",
+        "topic": "pams/scored/+",
+        "qos": "0",
+        "datatype": "json",
+        "broker": "mqtt-broker",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 150,
+        "y": 320,
+        "wires": [
+            [
+                "fn-ml-build"
+            ]
+        ]
+    },
+    {
+        "id": "fn-ml-build",
+        "type": "function",
+        "z": "pams-tab",
+        "name": "build ML influx point",
+        "func": "const r = msg.payload;\nif (!r || typeof r !== 'object') {\n    return null;\n}\nmsg.payload = [\n    {\n        temperature: Number(r.temperature),\n        door_status: Number(r.door_status),\n        health_score: Number(r.health_score),\n        ml_health_score: Number(r.ml_health_score),\n        thermal_velocity: Number(r.thermal_velocity),\n        inferred_state: Number(r.inferred_state),\n        anomaly: Number(r.anomaly),\n        training: Number(r.training)\n    },\n    {\n        unit_id: String(r.unit_id)\n    }\n];\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 400,
+        "y": 320,
+        "wires": [
+            [
+                "influx-ml-out",
+                "dbg-ml"
+            ]
+        ]
+    },
+    {
+        "id": "influx-ml-out",
+        "type": "influxdb out",
+        "z": "pams-tab",
+        "influxdb": "influx-config",
+        "name": "write ml_scores",
+        "measurement": "ml_scores",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "PAMS_demo",
+        "bucket": "freezer_data",
+        "x": 670,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "dbg-ml",
+        "type": "debug",
+        "z": "pams-tab",
+        "name": "ml_scores",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 660,
+        "y": 360,
+        "wires": []
+    }
+]

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+pams_env/
+
+# PAMS runtime data (generated on the Pi, not source)
+pams_ml_data/
+*.csv
+freezer_telemetry.csv
+
+# bacnet-stack is built from source on the Pi, not committed here
+bacnet-stack/
+
+# Node-RED / npm runtime artifacts (keep flows.json + package.json only)
+**/node_modules/
+node-red-data/.npm/
+node-red-data/.config.*
+node-red-data/.flows.json.backup
+
+# InfluxDB / secrets - never commit tokens
+*.token
+secrets.env
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp

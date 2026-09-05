@@ -1,0 +1,45 @@
+Subject: Adding a monitoring Pi (BACnet MS/TP) to the freezer trunk — parameters needed
+
+Hi [Engineer name],
+
+We're running a short predictive-monitoring pilot (PAMS) and would like to add a
+Raspberry Pi to the freezer's controls network as a **BACnet MS/TP master node**.
+Its job is simple and low-impact:
+
+  • Poll the freezer's temperature (and door, if available) via BACnet ReadProperty
+  • Compute a 0–100 "health score"
+  • Write that score back to a single Analog Value (BACnet WriteProperty, priority 8)
+
+That's the whole footprint: one read-mostly poller plus one writable point. No
+Siemens programming changes are required on our behalf beyond confirming a few
+parameters and nominating the points.
+
+To bring it online we need four things from you:
+
+  1. Confirm the freezer trunk is genuinely **BACnet MS/TP** (EIA-485). If it's a
+     P1/P2 FLN (proprietary APOGEE) trunk, a BACnet node can't join it directly and
+     we'll discuss a gateway instead.
+
+  2. **Assign the Pi** an unused MS/TP MAC address (0–127) and a unique BACnet
+     device instance.
+
+  3. Provide the **trunk baud rate**, Max_Master, and network number.
+
+  4. Provide the **freezer controller's** device instance + MS/TP MAC, and the
+     **object IDs** for: temperature (read), door (read, optional), and a writable
+     Analog Value for the score (write). If you'd prefer we not write to the BMS
+     for the pilot, we're happy to run read-only.
+
+The attached one-page sheet (PAMS_BACnet_MSTP_Integration) has all of this laid out
+as fill-in tables, plus our node's parameters and wiring (A/B/GND, termination).
+
+On our side everything is already built and validated: the Pi's RS-485 adapter is
+up, the MS/TP master engine initializes on the port, and it's ready to bind and
+poll as soon as we have your values and the trunk is landed. The node is a passive
+monitor — it will not command equipment or alter control logic.
+
+Happy to jump on a quick call to land the wiring and MAC assignments together.
+
+Thanks,
+[Your name]
+[Phone / email]
