@@ -1,0 +1,83 @@
+{
+  "overwrite": true,
+  "folderId": 0,
+  "dashboard": {
+    "id": null,
+    "uid": "pams-freezer",
+    "title": "PAMS Freezer Health",
+    "tags": ["pams", "freezer"],
+    "timezone": "browser",
+    "schemaVersion": 39,
+    "version": 0,
+    "refresh": "5s",
+    "time": { "from": "now-30m", "to": "now" },
+    "templating": { "list": [] },
+    "panels": [
+      {
+        "id": 1,
+        "type": "gauge",
+        "title": "Latest ML Health Score",
+        "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+        "datasource": { "type": "influxdb", "uid": "influxdb_pams" },
+        "fieldConfig": {
+          "defaults": {
+            "min": 0, "max": 100, "unit": "percent",
+            "thresholds": { "mode": "absolute", "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 50 },
+              { "color": "green", "value": 80 }
+            ] }
+          },
+          "overrides": []
+        },
+        "targets": [
+          { "refId": "A", "query": "from(bucket: \"freezer_data\") |> range(start: -5m) |> filter(fn: (r) => r._measurement == \"ml_scores\" and r._field == \"ml_health_score\") |> last() |> keep(columns: [\"_value\", \"unit_id\"])" }
+        ]
+      },
+      {
+        "id": 2,
+        "type": "timeseries",
+        "title": "Temperature (°C)",
+        "gridPos": { "h": 8, "w": 18, "x": 6, "y": 0 },
+        "datasource": { "type": "influxdb", "uid": "influxdb_pams" },
+        "fieldConfig": { "defaults": { "unit": "celsius", "custom": { "drawStyle": "line", "showPoints": "never" } }, "overrides": [] },
+        "targets": [
+          { "refId": "A", "query": "from(bucket: \"freezer_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"readings\" and r._field == \"temperature\") |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns: [\"_time\", \"_value\", \"unit_id\"])" }
+        ]
+      },
+      {
+        "id": 3,
+        "type": "timeseries",
+        "title": "ML Health Score (0-100)",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "datasource": { "type": "influxdb", "uid": "influxdb_pams" },
+        "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "percent", "custom": { "drawStyle": "line", "showPoints": "never" } }, "overrides": [] },
+        "targets": [
+          { "refId": "A", "query": "from(bucket: \"freezer_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"ml_scores\" and r._field == \"ml_health_score\") |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns: [\"_time\", \"_value\", \"unit_id\"])" }
+        ]
+      },
+      {
+        "id": 4,
+        "type": "timeseries",
+        "title": "Anomaly Flag (1 = anomaly)",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "datasource": { "type": "influxdb", "uid": "influxdb_pams" },
+        "fieldConfig": { "defaults": { "min": 0, "max": 1, "custom": { "drawStyle": "line", "lineInterpolation": "stepAfter", "fillOpacity": 30, "showPoints": "never" } }, "overrides": [] },
+        "targets": [
+          { "refId": "A", "query": "from(bucket: \"freezer_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"ml_scores\" and r._field == \"anomaly\") |> aggregateWindow(every: v.windowPeriod, fn: max, createEmpty: false) |> keep(columns: [\"_time\", \"_value\", \"unit_id\"])" }
+        ]
+      },
+      {
+        "id": 5,
+        "type": "timeseries",
+        "title": "Thermal Velocity (°C/s)",
+        "gridPos": { "h": 7, "w": 24, "x": 0, "y": 16 },
+        "datasource": { "type": "influxdb", "uid": "influxdb_pams" },
+        "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "showPoints": "never" } }, "overrides": [] },
+        "targets": [
+          { "refId": "A", "query": "from(bucket: \"freezer_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"ml_scores\" and r._field == \"thermal_velocity\") |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns: [\"_time\", \"_value\", \"unit_id\"])" }
+        ]
+      }
+    ]
+  }
+}
