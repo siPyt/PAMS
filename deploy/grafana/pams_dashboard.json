@@ -77,6 +77,65 @@
         "targets": [
           { "refId": "A", "query": "from(bucket: \"freezer_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"ml_scores\" and r._field == \"thermal_velocity\") |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns: [\"_time\", \"_value\", \"unit_id\"])" }
         ]
+      },
+      {
+        "id": 6,
+        "type": "timeseries",
+        "title": "Per-Model Health Scores (IF / HMM / LSTM / Ensemble)",
+        "gridPos": { "h": 8, "w": 16, "x": 0, "y": 23 },
+        "datasource": { "type": "influxdb", "uid": "influxdb_pams" },
+        "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "percent", "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 2 } }, "overrides": [] },
+        "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull"] } },
+        "targets": [
+          { "refId": "A", "query": "from(bucket: \"freezer_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"ml_scores\" and r._field == \"if_health\") |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns: [\"_time\", \"_value\", \"_field\", \"unit_id\"])" },
+          { "refId": "B", "query": "from(bucket: \"freezer_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"ml_scores\" and r._field == \"hmm_health\") |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns: [\"_time\", \"_value\", \"_field\", \"unit_id\"])" },
+          { "refId": "C", "query": "from(bucket: \"freezer_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"ml_scores\" and r._field == \"lstm_health\") |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns: [\"_time\", \"_value\", \"_field\", \"unit_id\"])" },
+          { "refId": "D", "query": "from(bucket: \"freezer_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"ml_scores\" and r._field == \"ensemble_health\") |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false) |> keep(columns: [\"_time\", \"_value\", \"_field\", \"unit_id\"])" }
+        ]
+      },
+      {
+        "id": 7,
+        "type": "gauge",
+        "title": "Latest Ensemble Health",
+        "gridPos": { "h": 8, "w": 4, "x": 16, "y": 23 },
+        "datasource": { "type": "influxdb", "uid": "influxdb_pams" },
+        "fieldConfig": {
+          "defaults": {
+            "min": 0, "max": 100, "unit": "percent",
+            "thresholds": { "mode": "absolute", "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 50 },
+              { "color": "green", "value": 80 }
+            ] }
+          },
+          "overrides": []
+        },
+        "targets": [
+          { "refId": "A", "query": "from(bucket: \"freezer_data\") |> range(start: -5m) |> filter(fn: (r) => r._measurement == \"ml_scores\" and r._field == \"ensemble_health\") |> last() |> keep(columns: [\"_value\", \"unit_id\"])" }
+        ]
+      },
+      {
+        "id": 8,
+        "type": "stat",
+        "title": "Predicted RUL (days)",
+        "gridPos": { "h": 8, "w": 4, "x": 20, "y": 23 },
+        "datasource": { "type": "influxdb", "uid": "influxdb_pams" },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "d", "decimals": 1,
+            "thresholds": { "mode": "absolute", "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 14 },
+              { "color": "green", "value": 60 }
+            ] },
+            "noValue": "n/a (needs failure data)"
+          },
+          "overrides": []
+        },
+        "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+        "targets": [
+          { "refId": "A", "query": "from(bucket: \"freezer_data\") |> range(start: -30m) |> filter(fn: (r) => r._measurement == \"ml_scores\" and r._field == \"rul_days\") |> last() |> keep(columns: [\"_value\", \"unit_id\"])" }
+        ]
       }
     ]
   }
