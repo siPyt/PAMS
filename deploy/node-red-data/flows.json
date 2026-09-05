@@ -159,7 +159,7 @@
         "type": "function",
         "z": "pams-tab",
         "name": "build ML influx point",
-        "func": "const r = msg.payload;\nif (!r || typeof r !== 'object') {\n    return null;\n}\nmsg.payload = [\n    {\n        temperature: Number(r.temperature),\n        door_status: Number(r.door_status),\n        health_score: Number(r.health_score),\n        ml_health_score: Number(r.ml_health_score),\n        thermal_velocity: Number(r.thermal_velocity),\n        inferred_state: Number(r.inferred_state),\n        anomaly: Number(r.anomaly),\n        training: Number(r.training)\n    },\n    {\n        unit_id: String(r.unit_id)\n    }\n];\nreturn msg;",
+        "func": "const r = msg.payload;\nif (!r || typeof r !== 'object') {\n    return null;\n}\nconst fields = {\n    temperature: Number(r.temperature),\n    door_status: Number(r.door_status),\n    health_score: Number(r.health_score),\n    ml_health_score: Number(r.ml_health_score),\n    thermal_velocity: Number(r.thermal_velocity),\n    inferred_state: Number(r.inferred_state),\n    anomaly: Number(r.anomaly),\n    training: Number(r.training)\n};\nif (r.ensemble_health != null) fields.ensemble_health = Number(r.ensemble_health);\nif (r.if_health != null) fields.if_health = Number(r.if_health);\nif (r.hmm_health != null) fields.hmm_health = Number(r.hmm_health);\nif (r.lstm_health != null) fields.lstm_health = Number(r.lstm_health);\nif (r.rul_days != null) fields.rul_days = Number(r.rul_days);\nmsg.payload = [fields, { unit_id: String(r.unit_id) }];\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,

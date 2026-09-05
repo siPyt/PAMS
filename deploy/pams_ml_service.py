@@ -21,7 +21,7 @@ import json
 
 import paho.mqtt.client as mqtt
 
-from pams_ml import PamsML
+from pams_ml import PamsML, ACTIVE_MODELS
 
 
 MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
@@ -52,16 +52,23 @@ def on_message(client, userdata, msg):
     if temp is None:
         return
     ts = data.get("ts")
+    door = int(data.get("door_status", 0))
 
-    ml = engine.score(unit_id, float(temp), ts=ts)
+    ml = engine.score(unit_id, float(temp), door_status=door, ts=ts)
 
     enriched = {
         "unit_id": unit_id,
         "temperature": float(temp),
-        "door_status": int(data.get("door_status", 0)),
-        # ML outputs (health_score here IS the ML score):
+        "door_status": door,
+        # combined health (fused across available models):
         "health_score": ml["health_score"],
         "ml_health_score": ml["health_score"],
+        "ensemble_health": ml["ensemble_health"],
+        # per-model health + RUL:
+        "if_health": ml["if_health"],
+        "hmm_health": ml["hmm_health"],
+        "lstm_health": ml["lstm_health"],
+        "rul_days": ml["rul_days"],
         "thermal_velocity": ml["thermal_velocity"],
         "inferred_state": ml["inferred_state"],
         "anomaly": ml["anomaly"],
@@ -73,8 +80,15 @@ def on_message(client, userdata, msg):
     client.publish(f"{OUT_PREFIX}/{unit_id}", json.dumps(enriched), qos=0)
 
     tag = "TRAIN" if ml["training"] else ("ANOM" if ml["anomaly"] else "ok")
-    print(f"{unit_id}: temp={round(float(temp),2)}C  vel={ml['thermal_velocity']}  "
-          f"score={ml['health_score']}  [{tag}]  ({ml['n_points']}/{ml['baseline']})")
+    extra = f" if={ml['if_health']}"
+    if ml["hmm_health"] is not None:
+        extra += f" hmm={ml['hmm_health']}"
+    if ml["lstm_health"] is not None:
+        extra += f" lstm={ml['lstm_health']}"
+    if ml["rul_days"] is not None:
+        extra += f" rul={ml['rul_days']}d"
+    print(f"{unit_id}: temp={round(float(temp),2)}C  health={ml['health_score']} ens={ml['ensemble_health']}{extra}  "
+          f"[{tag}]  ({ml['n_points']}/{ml['baseline']})")
 
 
 def main():
@@ -83,6 +97,7 @@ def main():
     client.on_message = on_message
     client.connect(MQTT_HOST, MQTT_PORT, 60)
     print(f"PAMS ML service: {IN_TOPIC} -> {OUT_PREFIX}/<unit>")
+    print(f"Active models: {', '.join(ACTIVE_MODELS)}")
     try:
         client.loop_forever()
     except KeyboardInterrupt:
