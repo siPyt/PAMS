@@ -7,7 +7,7 @@
         "info": "MQTT (pams/freezers/+) -> build InfluxDB point -> write to bucket 'freezer_data'."
     },
     {
-        "id": "mqtt-broker",
+        "id": "mqttbroker1",
         "type": "mqtt-broker",
         "name": "field-mqtt",
         "broker": "mqtt",
@@ -54,7 +54,7 @@
         "topic": "pams/freezers/+",
         "qos": "0",
         "datatype": "json",
-        "broker": "mqtt-broker",
+        "broker": "mqttbroker1",
         "nl": false,
         "rap": true,
         "rh": 0,
@@ -141,7 +141,7 @@
         "topic": "pams/scored/+",
         "qos": "0",
         "datatype": "json",
-        "broker": "mqtt-broker",
+        "broker": "mqttbroker1",
         "nl": false,
         "rap": true,
         "rh": 0,
