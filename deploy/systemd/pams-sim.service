@@ -2,6 +2,8 @@
 Description=PAMS freezer simulator (30 units -> MQTT)
 After=network-online.target docker.service
 Wants=network-online.target
+# Never run while the live BMS node is active (keeps sim data out of the pilot):
+Conflicts=pams-bms.service
 
 [Service]
 Type=simple

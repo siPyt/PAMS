@@ -5,6 +5,8 @@
 Description=PAMS BMS MS/TP polling node
 After=network-online.target docker.service
 Wants=network-online.target
+# Starting the live pilot automatically stops the simulator:
+Conflicts=pams-sim.service
 
 [Service]
 Type=simple
