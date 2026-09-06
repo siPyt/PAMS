@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Predator</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">◤</span>
+        <span class="brand-name">PREDATOR</span>
+        <span class="brand-sub">PAMS cockpit</span>
+      </div>
+      <div class="topbar-right">
+        <div id="stat" class="status">
+          <span class="dot"></span>
+          <span class="status-text">connecting…</span>
+        </div>
+        <button id="reconnectBtn" class="btn ghost" title="Reconnect">↻</button>
+        <button id="settingsBtn" class="btn ghost" title="Settings">⚙</button>
+      </div>
+    </header>
+
+    <main class="content">
+      <div id="summary" class="summary hidden">
+        <div class="sum-card">
+          <div class="sum-val" id="sumUnits">0</div>
+          <div class="sum-lbl">Units</div>
+        </div>
+        <div class="sum-card">
+          <div class="sum-val ok" id="sumOk">0</div>
+          <div class="sum-lbl">Healthy</div>
+        </div>
+        <div class="sum-card">
+          <div class="sum-val warn" id="sumWarn">0</div>
+          <div class="sum-lbl">Watch</div>
+        </div>
+        <div class="sum-card">
+          <div class="sum-val crit" id="sumCrit">0</div>
+          <div class="sum-lbl">Critical</div>
+        </div>
+        <div class="sum-card">
+          <div class="sum-val crit" id="sumAnom">0</div>
+          <div class="sum-lbl">Anomalies</div>
+        </div>
+      </div>
+
+      <section id="grid" class="grid"></section>
+
+      <div id="empty" class="empty">
+        <div class="empty-ring"></div>
+        <h2>Waiting for PAMS data…</h2>
+        <p id="emptyMsg">Searching for <b>alpha-p</b> over USB / Ethernet…</p>
+        <p class="empty-hint">
+          No units have reported yet. Check the connection status, top-right.
+        </p>
+      </div>
+    </main>
+
+    <!-- Settings modal -->
+    <div id="modal" class="modal hidden">
+      <div class="modal-card">
+        <h2>Connection</h2>
+        <p class="modal-sub">
+          Predator reaches the PAMS host over whichever link is live. It tries
+          these endpoints top-to-bottom and connects to the first that answers.
+        </p>
+        <label>
+          Endpoints (one per line — hostname or IP)
+          <textarea
+            id="cfgHosts"
+            rows="4"
+            spellcheck="false"
+            placeholder="alpha-p.local&#10;alpha-p&#10;192.168.1.112"
+          ></textarea>
+        </label>
+        <div class="row2">
+          <label>
+            MQTT port
+            <input id="cfgMqttPort" type="number" min="1" max="65535" />
+          </label>
+          <label>
+            InfluxDB port
+            <input id="cfgInfluxPort" type="number" min="1" max="65535" />
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button id="cancelBtn" class="btn ghost">Cancel</button>
+          <button id="saveBtn" class="btn primary">Save &amp; reconnect</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
