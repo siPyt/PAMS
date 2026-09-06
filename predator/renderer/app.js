@@ -1095,8 +1095,12 @@ function renderHelp() {
 // Boot
 // ---------------------------------------------------------------------------
 window.addEventListener('DOMContentLoaded', async () => {
+  let userNavigated = false;
   document.querySelectorAll('.nav-item').forEach((b) =>
-    b.addEventListener('click', () => navigate(b.dataset.view))
+    b.addEventListener('click', () => {
+      userNavigated = true;
+      navigate(b.dataset.view);
+    })
   );
   $('#demoBtn').addEventListener('click', toggleDemo);
   $('#reconnectBtn').addEventListener('click', () => window.predator.reconnect());
@@ -1108,6 +1112,11 @@ window.addEventListener('DOMContentLoaded', async () => {
   const emptyDemo = $('#emptyDemoBtn');
   if (emptyDemo) emptyDemo.addEventListener('click', () => {
     if (!demo.on) toggleDemo();
+  });
+  const emptyConnect = $('#emptyConnectBtn');
+  if (emptyConnect) emptyConnect.addEventListener('click', () => {
+    userNavigated = true;
+    navigate('connections');
   });
   $('#connRefresh').addEventListener('click', doProbe);
   $('#connScan').addEventListener('click', doScan);
@@ -1129,6 +1138,14 @@ window.addEventListener('DOMContentLoaded', async () => {
   state.status.hosts = cfg.hosts;
   renderStatus();
   navigate('dashboard');
+
+  // If no live host connects shortly after launch, open the connection browser
+  // so connecting is the first thing the user sees.
+  setTimeout(() => {
+    if (!userNavigated && !demo.on && state.status.state !== 'connected') {
+      navigate('connections');
+    }
+  }, 4000);
 
   // Refresh data-driven views (timers, sparklines) each second.
   setInterval(refreshData, 1000);
