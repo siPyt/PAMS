@@ -5,6 +5,8 @@ const path = require('path');
 const fs = require('fs');
 const net = require('net');
 const os = require('os');
+const http = require('http');
+const { spawn } = require('child_process');
 const mqtt = require('mqtt');
 
 // Predator talks only to the PAMS host, but reaches it over whichever link is
@@ -246,6 +248,93 @@ function connectTo(host) {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Gateway fetch (real Services/Devices/Points from the Pi-side gateway :8090)
+// ---------------------------------------------------------------------------
+function gatewayGet(pathname) {
+  return new Promise((resolve) => {
+    const host = activeHost || config.hosts[0] || 'alpha-p.local';
+    const req = http.get({ host, port: 8090, path: pathname, timeout: 5000 }, (res) => {
+      let data = '';
+      res.on('data', (c) => (data += c));
+      res.on('end', () => {
+        try {
+          resolve({ ok: true, host, data: JSON.parse(data) });
+        } catch {
+          resolve({ ok: false, host, error: 'bad response' });
+        }
+      });
+    });
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ ok: false, host, error: 'timeout' });
+    });
+    req.on('error', (e) => resolve({ ok: false, host, error: String((e && e.message) || e) }));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// In-app PowerShell terminal (persistent session, line-based)
+// ---------------------------------------------------------------------------
+const SENTINEL = '\u0001PREDATOR_DONE:';
+let shell = null;
+let shellBuf = '';
+
+function handleShellData(text) {
+  shellBuf += text;
+  let idx = shellBuf.indexOf(SENTINEL);
+  while (idx !== -1) {
+    const before = shellBuf.slice(0, idx);
+    if (before) send('term:data', { chunk: before });
+    const rest = shellBuf.slice(idx + SENTINEL.length);
+    const nl = rest.indexOf('\n');
+    if (nl === -1) {
+      shellBuf = SENTINEL + rest; // wait for the exit code line to arrive
+      return;
+    }
+    send('term:done', { code: rest.slice(0, nl).trim() });
+    shellBuf = rest.slice(nl + 1);
+    idx = shellBuf.indexOf(SENTINEL);
+  }
+  const tail = SENTINEL.length - 1;
+  if (shellBuf.length > tail) {
+    send('term:data', { chunk: shellBuf.slice(0, shellBuf.length - tail) });
+    shellBuf = shellBuf.slice(shellBuf.length - tail);
+  }
+}
+
+function ensureShell() {
+  if (shell) return;
+  shellBuf = '';
+  shell = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', '-'], {
+    cwd: app.getPath('home'),
+    windowsHide: true
+  });
+  shell.stdout.on('data', (d) => handleShellData(d.toString()));
+  shell.stderr.on('data', (d) => send('term:data', { chunk: d.toString(), err: true }));
+  shell.on('exit', () => {
+    shell = null;
+    send('term:exit', {});
+  });
+}
+
+function termRun(cmd) {
+  ensureShell();
+  shell.stdin.write(`${cmd}\r\nWrite-Output "${SENTINEL}$LASTEXITCODE"\r\n`);
+}
+
+function termReset() {
+  if (shell) {
+    try {
+      shell.kill();
+    } catch {
+      /* ignore */
+    }
+    shell = null;
+  }
+  ensureShell();
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1320,
@@ -279,6 +368,13 @@ app.on('activate', () => {
 app.on('window-all-closed', () => {
   clearTimeout(redialTimer);
   endClient();
+  if (shell) {
+    try {
+      shell.kill();
+    } catch {
+      /* ignore */
+    }
+  }
   app.quit();
 });
 
@@ -295,3 +391,12 @@ ipcMain.handle('app:reconnect', () => {
 ipcMain.handle('net:probe', () => scanEndpoints());
 ipcMain.handle('net:scan', () => scanSubnet());
 ipcMain.handle('app:connectTo', (_event, host) => connectTo(host));
+ipcMain.handle('gateway:get', (_event, pathname) => gatewayGet(pathname));
+ipcMain.handle('term:run', (_event, cmd) => {
+  termRun(cmd);
+  return true;
+});
+ipcMain.handle('term:reset', () => {
+  termReset();
+  return true;
+});

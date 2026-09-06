@@ -311,6 +311,10 @@ function navigate(view) {
   if (view === 'settings') fillSettings();
   renderActive();
   if (view === 'connections') doProbe();
+  if (view === 'terminal') {
+    const ti = $('#termIn');
+    if (ti) setTimeout(() => ti.focus(), 0);
+  }
 }
 
 function renderActive() {
@@ -487,122 +491,129 @@ function drawTrend(canvas, u) {
 }
 
 // ---------------------------------------------------------------------------
-// Devices + Points views (BACnet explorer / configurator preview)
+// Devices + Points + Services views (LIVE via the Pi-side gateway :8090)
 // ---------------------------------------------------------------------------
-const demoDevices = [
-  {
-    id: 1,
-    name: 'Walk-in Freezer BMS',
-    vendor: 'Siemens',
-    mac: 45,
-    objects: [
-      { type: 'analog-input', inst: 1, name: 'Freezer Temp', unit: '°C', src: 'temperature' },
-      { type: 'binary-input', inst: 1, name: 'Door Contact', unit: '', src: 'door_status' },
-      { type: 'analog-value', inst: 50, name: 'PAMS Health Score', unit: '%', src: 'health_score', writable: true }
-    ]
-  },
-  {
-    id: 45001,
-    name: 'RaspberryPi_PAMS_BMS_Node',
-    vendor: 'PAMS',
-    mac: 45,
-    objects: [{ type: 'device', inst: 45001, name: 'Predator Edge Node', unit: '' }]
-  }
-];
-let selDevice = 1;
-
-function fmtPoint(o, val) {
-  if (val == null) return '—';
-  if (o.type === 'binary-input') return Number(val) === 1 ? 'OPEN' : 'closed';
-  if (o.src === 'temperature') return Number(val).toFixed(2);
-  if (o.src === 'health_score') return Number(val).toFixed(0);
-  return String(val);
+function gatewayOffline(r) {
+  const host = r && r.host ? r.host : 'the Pi';
+  const why = r && r.error ? ` (${r.error})` : '';
+  return `<div class="preview-note big">Gateway not reachable at <code>${host}:8090</code>${why}.<br />Connect to the Pi, then Refresh. You can check it from <b>Terminal → Gateway status</b>.</div>`;
 }
 
-function renderDevices() {
+function svcClass(state) {
+  if (state === 'active' || state === 'running') return 'ok';
+  if (state === 'inactive' || state === 'exited' || state === 'dead' || state === 'failed') return 'crit';
+  return 'warn';
+}
+
+let selDevice = null;
+
+async function renderServices() {
+  const panel = $('#servicesPanel');
+  panel.innerHTML = '<div class="preview-note">Loading live status from the gateway…</div>';
+  const r = await window.predator.gatewayGet('/api/services');
+  if (!r || !r.ok) {
+    panel.innerHTML = gatewayOffline(r);
+    return;
+  }
+  const rows = (r.data.services || [])
+    .map(
+      (s) =>
+        `<tr><td><b>${s.name}</b><div class="muted">${s.detail || ''}</div></td><td>${s.kind}</td><td><span class="svc-pill ${svcClass(s.state)}">${s.state}</span></td></tr>`
+    )
+    .join('');
+  panel.innerHTML = `
+    <div class="panel-bar"><button class="btn ghost sm" id="svcRefresh">↻ Refresh</button><span class="muted">live from ${r.host}:8090</span></div>
+    <table class="tbl">
+      <thead><tr><th>Service</th><th>Type</th><th>State</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  const rb = $('#svcRefresh');
+  if (rb) rb.addEventListener('click', renderServices);
+}
+
+async function renderDevices() {
   const tree = $('#deviceTree');
+  const panel = $('#deviceObjects');
+  tree.innerHTML = '<div class="tree-title">Discovered devices</div><div class="conn-empty">Scanning…</div>';
+  panel.innerHTML = '';
+  const r = await window.predator.gatewayGet('/api/devices');
+  if (!r || !r.ok) {
+    tree.innerHTML = '<div class="tree-title">Discovered devices</div>';
+    panel.innerHTML = gatewayOffline(r);
+    return;
+  }
+  const devs = r.data.devices || [];
+  if (devs.length && (selDevice == null || !devs.find((d) => d.instance === selDevice))) {
+    selDevice = devs[0].instance;
+  }
   tree.innerHTML =
-    '<div class="tree-title">Discovered devices <span class="preview-tag">demo</span></div>' +
-    demoDevices
-      .map(
-        (d) =>
-          `<button class="tree-item ${d.id === selDevice ? 'active' : ''}" data-dev="${d.id}"><span class="ti-ico">◆</span>${d.id} · ${d.name}</button>`
-      )
-      .join('');
+    '<div class="tree-title">Discovered devices <span class="preview-tag">live</span></div>' +
+    (devs.length
+      ? devs
+          .map(
+            (d) =>
+              `<button class="tree-item ${d.instance === selDevice ? 'active' : ''}" data-dev="${d.instance}"><span class="ti-ico">◆</span>Device ${d.instance}</button>`
+          )
+          .join('')
+      : `<div class="conn-empty">${r.data.note || 'No devices found.'}</div>`);
   tree.querySelectorAll('.tree-item').forEach((b) =>
     b.addEventListener('click', () => {
       selDevice = Number(b.dataset.dev);
       renderDevices();
     })
   );
-  const dev = demoDevices.find((d) => d.id === selDevice);
-  const sample = firstUnit();
-  const rows = dev.objects
-    .map((o) => {
-      const val = o.src && sample ? fmtPoint(o, sample.last[o.src]) : '—';
-      return `<tr><td class="mono">${o.type}:${o.inst}</td><td>${o.name}</td><td class="mono">${val}</td><td>${o.unit || ''}</td><td>${o.writable ? '<span class="pill door-open">W</span>' : '<span class="pill">R</span>'}</td></tr>`;
-    })
+  if (!devs.length) {
+    panel.innerHTML = `<div class="preview-note big">${r.data.note || 'No BACnet devices discovered.'}<br />Devices appear here once the freezer/BMS is wired to the Pi's trunk.</div>`;
+    return;
+  }
+  panel.innerHTML = '<div class="preview-note">Reading points…</div>';
+  const pr = await window.predator.gatewayGet('/api/points?device=' + selDevice);
+  if (!pr || !pr.ok) {
+    panel.innerHTML = gatewayOffline(pr);
+    return;
+  }
+  const rows = (pr.data.points || [])
+    .map(
+      (p) =>
+        `<tr><td class="mono">${p.object}</td><td class="mono">${p.value == null ? '—' : p.value}</td><td>${p.ok ? '<span class="pill">R</span>' : '<span class="muted">n/a</span>'}</td></tr>`
+    )
     .join('');
-  $('#deviceObjects').innerHTML = `
-    <div class="panel-title">${dev.name} <span class="muted">· device ${dev.id} · ${dev.vendor} · MAC ${dev.mac}</span></div>
+  panel.innerHTML = `
+    <div class="panel-title">Device ${selDevice}</div>
     <table class="tbl">
-      <thead><tr><th>Object</th><th>Name</th><th>Present value</th><th>Units</th><th>Access</th></tr></thead>
+      <thead><tr><th>Object</th><th>Present value</th><th>Read</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>
-    <p class="preview-note">Live discovery &amp; read/write arrive with the Pi-side gateway (phase 2). Values are ${sample ? 'from demo mode' : 'placeholders — enable Demo'}.</p>`;
+    </table>`;
 }
 
-function renderPoints() {
-  const sample = firstUnit();
-  const pts = [];
-  for (const d of demoDevices) for (const o of d.objects) if (o.src) pts.push({ dev: d.id, ...o });
-  const rows = pts
-    .map((o) => {
-      const val = sample ? fmtPoint(o, sample.last[o.src]) : '—';
-      return `<tr><td class="mono">${o.dev}</td><td class="mono">${o.type}:${o.inst}</td><td>${o.name}</td><td class="mono">${val}</td><td>${o.unit || ''}</td><td>${o.writable ? '<button class="btn ghost sm" disabled title="Enabled when connected to the gateway">Write…</button>' : '<span class="muted">read-only</span>'}</td></tr>`;
-    })
-    .join('');
-  $('#pointsPanel').innerHTML = `
+async function renderPoints() {
+  const panel = $('#pointsPanel');
+  panel.innerHTML = '<div class="preview-note">Loading…</div>';
+  const r = await window.predator.gatewayGet('/api/devices');
+  if (!r || !r.ok) {
+    panel.innerHTML = gatewayOffline(r);
+    return;
+  }
+  const devs = r.data.devices || [];
+  if (!devs.length) {
+    panel.innerHTML = `<div class="preview-note big">${r.data.note || 'No devices found.'}<br />Points appear here once BACnet devices are discovered.</div>`;
+    return;
+  }
+  let rows = '';
+  for (const d of devs) {
+    // eslint-disable-next-line no-await-in-loop
+    const pr = await window.predator.gatewayGet('/api/points?device=' + d.instance);
+    if (pr && pr.ok) {
+      for (const p of pr.data.points || []) {
+        rows += `<tr><td class="mono">${d.instance}</td><td class="mono">${p.object}</td><td class="mono">${p.value == null ? '—' : p.value}</td></tr>`;
+      }
+    }
+  }
+  panel.innerHTML = `
     <table class="tbl">
-      <thead><tr><th>Device</th><th>Object</th><th>Name</th><th>Value</th><th>Units</th><th>Action</th></tr></thead>
+      <thead><tr><th>Device</th><th>Object</th><th>Present value</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>
-    <p class="preview-note">Writing is disabled in preview; it activates with the Pi gateway and will require confirmation.</p>`;
-}
-
-// ---------------------------------------------------------------------------
-// Services view
-// ---------------------------------------------------------------------------
-const demoServices = [
-  { name: 'pams-ml', kind: 'systemd', desc: 'ML scoring service', state: 'active' },
-  { name: 'pams-bms', kind: 'systemd', desc: 'BACnet BMS node', state: 'inactive' },
-  { name: 'field-mqtt', kind: 'container', desc: 'Mosquitto broker :1883', state: 'active' },
-  { name: 'field-nodered', kind: 'container', desc: 'Node-RED :1880', state: 'active' },
-  { name: 'field-influxdb', kind: 'container', desc: 'InfluxDB :8086', state: 'active' },
-  { name: 'field-grafana', kind: 'container', desc: 'Grafana :3000', state: 'active' }
-];
-
-function renderServices() {
-  const rows = demoServices
-    .map((s) => {
-      const cls = s.state === 'active' ? 'ok' : s.state === 'inactive' ? 'crit' : 'warn';
-      return `<tr>
-        <td><b>${s.name}</b><div class="muted">${s.desc}</div></td>
-        <td>${s.kind}</td>
-        <td><span class="svc-pill ${cls}">${s.state}</span></td>
-        <td class="svc-actions">
-          <button class="btn ghost sm" disabled>Start</button>
-          <button class="btn ghost sm" disabled>Stop</button>
-          <button class="btn ghost sm" disabled>Restart</button>
-        </td></tr>`;
-    })
-    .join('');
-  $('#servicesPanel').innerHTML = `
-    <table class="tbl">
-      <thead><tr><th>Service</th><th>Type</th><th>State</th><th>Controls</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <p class="preview-note">States are a preview. Live status &amp; controls activate with the Pi gateway (phase 2).</p>`;
+    </table>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1092,6 +1103,34 @@ function renderHelp() {
 }
 
 // ---------------------------------------------------------------------------
+// Terminal (PowerShell) view
+// ---------------------------------------------------------------------------
+const term = { history: [], hindex: 0 };
+
+function stripAnsi(s) {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
+}
+
+function termAppend(text, cls) {
+  const out = $('#termOut');
+  if (!out) return;
+  const span = document.createElement('span');
+  if (cls) span.className = cls;
+  span.textContent = stripAnsi(text);
+  out.appendChild(span);
+  out.scrollTop = out.scrollHeight;
+}
+
+function termSend(cmd) {
+  if (!cmd || !cmd.trim()) return;
+  termAppend(`\nPS> ${cmd}\n`, 'term-echo');
+  term.history.push(cmd);
+  term.hindex = term.history.length;
+  window.predator.term.run(cmd);
+}
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 window.addEventListener('DOMContentLoaded', async () => {
@@ -1124,6 +1163,52 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('#connAdd').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') addConnHost();
   });
+
+  window.predator.term.onData((m) => termAppend(m.chunk, m.err ? 'term-err' : ''));
+  window.predator.term.onDone(() => {});
+  window.predator.term.onExit(() => termAppend('\n[shell exited]\n', 'term-err'));
+  const termIn = $('#termIn');
+  if (termIn) {
+    termIn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        termSend(termIn.value);
+        termIn.value = '';
+      } else if (e.key === 'ArrowUp') {
+        if (term.hindex > 0) {
+          term.hindex -= 1;
+          termIn.value = term.history[term.hindex] || '';
+        }
+        e.preventDefault();
+      } else if (e.key === 'ArrowDown') {
+        if (term.hindex < term.history.length - 1) {
+          term.hindex += 1;
+          termIn.value = term.history[term.hindex] || '';
+        } else {
+          term.hindex = term.history.length;
+          termIn.value = '';
+        }
+        e.preventDefault();
+      }
+    });
+  }
+  const termRunBtn = $('#termRun');
+  if (termRunBtn)
+    termRunBtn.addEventListener('click', () => {
+      termSend($('#termIn').value);
+      $('#termIn').value = '';
+    });
+  const termClearBtn = $('#termClear');
+  if (termClearBtn) termClearBtn.addEventListener('click', () => {
+    $('#termOut').textContent = '';
+  });
+  const termResetBtn = $('#termReset');
+  if (termResetBtn) termResetBtn.addEventListener('click', () => {
+    window.predator.term.reset();
+    termAppend('\n[shell reset]\n', 'term-echo');
+  });
+  document.querySelectorAll('[data-term]').forEach((b) =>
+    b.addEventListener('click', () => termSend(b.dataset.term))
+  );
 
   window.predator.onStatus((s) => {
     state.status = s;

@@ -59,6 +59,9 @@
         <button class="nav-item" data-view="settings">
           <span class="nav-ico">⚙</span><span>Settings</span>
         </button>
+        <button class="nav-item" data-view="terminal">
+          <span class="nav-ico">&gt;_</span><span>Terminal</span>
+        </button>
         <button class="nav-item" data-view="help">
           <span class="nav-ico">?</span><span>Help &amp; Docs</span>
         </button>
@@ -106,7 +109,9 @@
               UI with simulated units.
             </p>
             <div class="empty-actions">
-              <button id="emptyConnectBtn" class="btn primary">Browse network</button>
+              <button id="emptyConnectBtn" class="btn primary">
+                Browse network
+              </button>
               <button id="emptyDemoBtn" class="btn ghost">Start demo</button>
             </div>
           </div>
@@ -140,7 +145,7 @@
         <!-- Devices -->
         <section class="view hidden" data-view="devices">
           <div class="view-head">
-            <h1>Devices <span class="preview-tag">preview</span></h1>
+            <h1>Devices <span class="preview-tag">live</span></h1>
             <p class="view-sub">BACnet device explorer (YABE-style).</p>
           </div>
           <div class="split">
@@ -152,7 +157,7 @@
         <!-- Points -->
         <section class="view hidden" data-view="points">
           <div class="view-head">
-            <h1>Points <span class="preview-tag">preview</span></h1>
+            <h1>Points <span class="preview-tag">live</span></h1>
             <p class="view-sub">Read / write BACnet points (ICC-style).</p>
           </div>
           <div id="pointsPanel" class="panel"></div>
@@ -186,7 +191,7 @@
         <!-- Services -->
         <section class="view hidden" data-view="services">
           <div class="view-head">
-            <h1>Services <span class="preview-tag">preview</span></h1>
+            <h1>Services <span class="preview-tag">live</span></h1>
             <p class="view-sub">PAMS services &amp; containers.</p>
           </div>
           <div class="panel" id="servicesPanel"></div>
@@ -226,6 +231,51 @@
                 Save &amp; reconnect
               </button>
             </div>
+          </div>
+        </section>
+
+        <!-- Terminal -->
+        <section class="view hidden" data-view="terminal">
+          <div class="view-head">
+            <h1>Terminal</h1>
+            <p class="view-sub">
+              A real PowerShell session — deploy and diagnose from inside
+              Predator.
+            </p>
+          </div>
+          <div class="term-actions">
+            <button
+              class="btn ghost sm"
+              data-term='ssh admin@alpha-p "curl -s localhost:8090/api/health; echo; pgrep -af pams_gateway.py"'
+            >
+              Gateway status
+            </button>
+            <button
+              class="btn ghost sm"
+              data-term='ssh admin@alpha-p "(setsid python3 -u ~/pams_gateway.py &gt;~/pams_gateway.log 2&gt;&amp;1 &lt;/dev/null &amp;)"; Start-Sleep 2; ssh admin@alpha-p "curl -s localhost:8090/api/health"'
+            >
+              Restart gateway
+            </button>
+            <button
+              class="btn ghost sm"
+              data-term='ssh admin@alpha-p "curl -s localhost:8090/api/services"'
+            >
+              Services JSON
+            </button>
+            <span class="spacer"></span>
+            <button id="termClear" class="btn ghost sm">Clear</button>
+            <button id="termReset" class="btn ghost sm">Reset shell</button>
+          </div>
+          <pre id="termOut" class="term-out"></pre>
+          <div class="term-input">
+            <span class="term-prompt">PS&gt;</span>
+            <input
+              id="termIn"
+              type="text"
+              spellcheck="false"
+              placeholder="Type a PowerShell command and press Enter…"
+            />
+            <button id="termRun" class="btn primary sm">Run</button>
           </div>
         </section>
 

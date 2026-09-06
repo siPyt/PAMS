@@ -1013,3 +1013,67 @@ mark {
   font-size: 13px;
   padding: 10px 8px;
 }
+
+/* Panels bar + Terminal */
+.panel-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.term-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.term-actions .spacer {
+  flex: 1 1 auto;
+}
+.term-out {
+  background: #05080c;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  height: calc(100vh - 320px);
+  min-height: 220px;
+  overflow: auto;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #cfe8d6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+.term-out .term-echo {
+  color: var(--accent);
+}
+.term-out .term-err {
+  color: var(--crit);
+}
+.term-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.term-prompt {
+  color: var(--accent);
+  font-family: ui-monospace, Consolas, monospace;
+}
+.term-input input {
+  flex: 1;
+  background: #05080c;
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  outline: none;
+}
+.term-input input:focus {
+  border-color: var(--accent);
+}
