@@ -11,6 +11,19 @@ const state = {
   status: { state: 'searching', hosts: ['alpha-p.local'], activeHost: null }
 };
 
+// Client-side demo generator: populates the UI with simulated freezer units
+// when there is no live PAMS data. Fully offline, touches nothing on the Pi.
+const demo = {
+  on: false,
+  timer: null,
+  seeds: [
+    { id: 'FRZ-01', temp: -20.5 },
+    { id: 'FRZ-02', temp: -19.2 },
+    { id: 'FRZ-03', temp: -21.8 },
+    { id: 'FRZ-04', temp: -17.4 }
+  ]
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -85,6 +98,12 @@ function upsert(msg) {
 // ---------------------------------------------------------------------------
 function renderStatus() {
   const el = $('#stat');
+  if (demo.on) {
+    el.className = 'status demo';
+    el.querySelector('.status-text').textContent = 'demo mode · simulated';
+    el.title = 'Simulated data — not live';
+    return;
+  }
   const s = state.status || {};
   // 'searching' shares the amber pulsing look with 'connecting'.
   const cls = s.state === 'searching' ? 'connecting' : s.state || '';
@@ -308,12 +327,82 @@ async function saveSettings() {
 }
 
 // ---------------------------------------------------------------------------
+// Demo mode (simulated data)
+// ---------------------------------------------------------------------------
+function demoTick() {
+  const now = Date.now();
+  for (const s of demo.seeds) {
+    const prev = s.temp;
+    s.temp += (Math.random() - 0.5) * 0.6; // random walk
+    if (Math.random() < 0.03) s.temp += (Math.random() - 0.5) * 5; // excursion
+    s.temp = Math.max(-30, Math.min(-8, s.temp));
+
+    const door = Math.random() < 0.06 ? 1 : 0;
+    const tv = Number((s.temp - prev).toFixed(2));
+    let health = 100;
+    if (s.temp > -18) health -= (s.temp + 18) * 15;
+    if (door) health -= 20;
+    health -= Math.random() * 4;
+    health = Math.max(0, Math.min(100, health));
+
+    const anomaly = s.temp > -14 || Math.abs(tv) > 2.5 ? 1 : 0;
+    const stateName = door
+      ? 'door-open'
+      : s.temp > -16
+        ? 'warming'
+        : Math.abs(tv) > 1.5
+          ? 'defrost'
+          : 'nominal';
+    const rul = Math.round(Math.max(1, (health / 100) * 180));
+    const jitter = (h, d) => Number((h + (Math.random() - 0.5) * d).toFixed(1));
+
+    const data = {
+      unit_id: s.id,
+      temperature: Number(s.temp.toFixed(2)),
+      door_status: door,
+      health_score: Number(health.toFixed(1)),
+      ml_health_score: Number(health.toFixed(1)),
+      ensemble_health: Number(health.toFixed(1)),
+      if_health: jitter(health, 4),
+      hmm_health: jitter(health, 6),
+      lstm_health: jitter(health, 6),
+      rul_days: rul,
+      thermal_velocity: tv,
+      inferred_state: stateName,
+      anomaly,
+      training: 0,
+      n_points: 500,
+      ts: now / 1000
+    };
+    upsert({ topic: `pams/scored/${s.id}`, data, at: now });
+  }
+}
+
+function toggleDemo() {
+  demo.on = !demo.on;
+  const btn = $('#demoBtn');
+  state.units.clear();
+  if (demo.on) {
+    btn.classList.add('active');
+    demoTick();
+    demo.timer = setInterval(demoTick, 2000);
+  } else {
+    btn.classList.remove('active');
+    clearInterval(demo.timer);
+    demo.timer = null;
+    render();
+  }
+  renderStatus();
+}
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 window.addEventListener('DOMContentLoaded', async () => {
   $('#settingsBtn').addEventListener('click', openSettings);
   $('#cancelBtn').addEventListener('click', closeSettings);
   $('#saveBtn').addEventListener('click', saveSettings);
+  $('#demoBtn').addEventListener('click', toggleDemo);
   $('#reconnectBtn').addEventListener('click', () => window.predator.reconnect());
   $('#modal').addEventListener('click', (e) => {
     if (e.target.id === 'modal') closeSettings();
@@ -323,7 +412,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     state.status = s;
     renderStatus();
   });
-  window.predator.onReading(upsert);
+  // Ignore live readings while demo mode is driving the UI.
+  window.predator.onReading((msg) => {
+    if (!demo.on) upsert(msg);
+  });
 
   const cfg = await window.predator.getConfig();
   state.status.hosts = cfg.hosts;

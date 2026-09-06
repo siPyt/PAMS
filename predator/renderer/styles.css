@@ -150,6 +150,21 @@ body {
   color: #eafcff;
   font-weight: 600;
 }
+.btn.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: #eafcff;
+  font-weight: 600;
+}
+
+.status.demo .dot {
+  background: var(--accent);
+  box-shadow: 0 0 10px 1px rgba(51, 201, 214, 0.6);
+}
+.status.demo {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
 
 /* Content */
 .content {
