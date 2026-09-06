@@ -901,3 +901,113 @@ mark {
   border-radius: 3px;
   padding: 0 2px;
 }
+
+/* Connections (RSWho-style) */
+.conn-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.conn-toolbar .spacer,
+.conn-item .spacer {
+  flex: 1 1 auto;
+}
+.conn-add {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 11px;
+  font-size: 13px;
+  outline: none;
+  min-width: 180px;
+}
+.conn-add:focus {
+  border-color: var(--accent);
+}
+.conn-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.conn-tree {
+  padding: 12px;
+}
+.tree-root {
+  font-weight: 700;
+  padding: 4px 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tree-group {
+  color: var(--text-mut);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 12px 6px 6px;
+  border-top: 1px solid var(--line-soft);
+  margin-top: 6px;
+}
+.conn-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+.conn-item:hover {
+  background: var(--panel-2);
+}
+.conn-item.active {
+  background: var(--panel-2);
+  border-color: var(--accent-dim);
+}
+.conn-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.conn-dot.on {
+  background: var(--ok);
+  box-shadow: 0 0 8px 1px rgba(53, 208, 127, 0.6);
+}
+.conn-dot.off {
+  background: var(--text-mut);
+}
+.conn-host {
+  min-width: 150px;
+}
+.conn-ports {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.port-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.conn-badge {
+  font-size: 11px;
+  color: var(--ok);
+  border: 1px solid rgba(53, 208, 127, 0.5);
+  background: rgba(53, 208, 127, 0.12);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.conn-empty {
+  color: var(--text-mut);
+  font-size: 13px;
+  padding: 10px 8px;
+}

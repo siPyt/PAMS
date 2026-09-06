@@ -4,6 +4,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
+const os = require('os');
 const mqtt = require('mqtt');
 
 // Predator talks only to the PAMS host, but reaches it over whichever link is
@@ -172,6 +173,79 @@ function connectMqtt(host) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Network browser (RSWho-style): probe endpoints / scan the local subnet.
+// ---------------------------------------------------------------------------
+async function probeHost(host) {
+  const spec = {
+    mqtt: config.mqttPort,
+    influx: config.influxPort,
+    nodered: 1880,
+    grafana: 3000,
+    ssh: 22
+  };
+  const ports = {};
+  await Promise.all(
+    Object.entries(spec).map(async ([name, port]) => {
+      ports[name] = await probe(host, port, 1200);
+    })
+  );
+  return { host, ports, online: ports.mqtt || ports.influx || ports.ssh };
+}
+
+async function scanEndpoints() {
+  const results = [];
+  for (const host of config.hosts) {
+    if (!host) continue;
+    // eslint-disable-next-line no-await-in-loop
+    results.push(await probeHost(host));
+  }
+  return { activeHost, results };
+}
+
+function localSubnets() {
+  const bases = new Set();
+  const ifaces = os.networkInterfaces();
+  for (const list of Object.values(ifaces)) {
+    for (const a of list || []) {
+      if (a.family === 'IPv4' && !a.internal) {
+        const parts = a.address.split('.');
+        if (parts.length === 4) bases.add(`${parts[0]}.${parts[1]}.${parts[2]}`);
+      }
+    }
+  }
+  return [...bases];
+}
+
+async function scanSubnet() {
+  const bases = localSubnets();
+  const found = [];
+  const port = config.mqttPort;
+  for (const base of bases) {
+    const hosts = [];
+    for (let i = 1; i <= 254; i++) hosts.push(`${base}.${i}`);
+    for (let i = 0; i < hosts.length; i += 64) {
+      const chunk = hosts.slice(i, i + 64);
+      // eslint-disable-next-line no-await-in-loop
+      const oks = await Promise.all(chunk.map((h) => probe(h, port, 400)));
+      oks.forEach((ok, j) => {
+        if (ok) found.push(chunk[j]);
+      });
+    }
+  }
+  return { subnets: bases, found };
+}
+
+function connectTo(host) {
+  if (!host) return false;
+  const hosts = config.hosts.filter((h) => h !== host);
+  hosts.unshift(host); // prefer the chosen host next time too
+  saveConfig({ hosts });
+  clearTimeout(redialTimer);
+  connectMqtt(host);
+  return true;
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1320,
@@ -218,3 +292,6 @@ ipcMain.handle('app:reconnect', () => {
   discoverAndConnect();
   return true;
 });
+ipcMain.handle('net:probe', () => scanEndpoints());
+ipcMain.handle('net:scan', () => scanSubnet());
+ipcMain.handle('app:connectTo', (_event, host) => connectTo(host));

@@ -38,6 +38,9 @@
         <button class="nav-item active" data-view="dashboard">
           <span class="nav-ico">▦</span><span>Dashboard</span>
         </button>
+        <button class="nav-item" data-view="connections">
+          <span class="nav-ico">◈</span><span>Connections</span>
+        </button>
         <button class="nav-item" data-view="devices">
           <span class="nav-ico">◆</span><span>Devices</span>
         </button>
@@ -104,6 +107,31 @@
             </p>
             <button id="emptyDemoBtn" class="btn primary">Start demo</button>
           </div>
+        </section>
+
+        <!-- Connections (RSWho-style) -->
+        <section class="view hidden" data-view="connections">
+          <div class="view-head">
+            <h1>Connections</h1>
+            <p class="view-sub">
+              Browse the network and connect to the PAMS host — RSWho-style.
+            </p>
+          </div>
+          <div class="conn-toolbar">
+            <button id="connRefresh" class="btn">↻ Refresh</button>
+            <button id="connScan" class="btn">⌕ Scan network</button>
+            <span id="connActive" class="conn-active"></span>
+            <span class="spacer"></span>
+            <input
+              id="connAdd"
+              class="conn-add"
+              type="text"
+              spellcheck="false"
+              placeholder="Add host or IP…"
+            />
+            <button id="connAddBtn" class="btn ghost">Add</button>
+          </div>
+          <div class="conn-tree tree" id="connTree"></div>
         </section>
 
         <!-- Devices -->

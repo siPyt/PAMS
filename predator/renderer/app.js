@@ -310,6 +310,7 @@ function navigate(view) {
   );
   if (view === 'settings') fillSettings();
   renderActive();
+  if (view === 'connections') doProbe();
 }
 
 function renderActive() {
@@ -326,6 +327,8 @@ function renderActive() {
       return renderPoints();
     case 'services':
       return renderServices();
+    case 'connections':
+      return renderConnections();
     case 'help':
       return renderHelp();
     default:
@@ -628,6 +631,107 @@ async function saveSettings() {
 }
 
 // ---------------------------------------------------------------------------
+// Connections (RSWho-style network browser)
+// ---------------------------------------------------------------------------
+const connState = {
+  probing: false,
+  scanning: false,
+  endpoints: [],
+  discovered: [],
+  subnets: [],
+  active: null
+};
+
+async function doProbe() {
+  connState.probing = true;
+  renderConnections();
+  try {
+    const r = await window.predator.probeEndpoints();
+    connState.endpoints = r.results || [];
+    connState.active = r.activeHost || null;
+  } catch {
+    /* ignore */
+  }
+  connState.probing = false;
+  renderConnections();
+}
+
+async function doScan() {
+  connState.scanning = true;
+  renderConnections();
+  try {
+    const r = await window.predator.scanSubnet();
+    connState.discovered = r.found || [];
+    connState.subnets = r.subnets || [];
+  } catch {
+    /* ignore */
+  }
+  connState.scanning = false;
+  renderConnections();
+}
+
+async function addConnHost() {
+  const inp = $('#connAdd');
+  const host = inp.value.trim();
+  if (!host) return;
+  const cfg = await window.predator.getConfig();
+  const hosts = cfg.hosts.filter((h) => h !== host);
+  hosts.push(host);
+  await window.predator.setConfig({ hosts });
+  inp.value = '';
+  doProbe();
+}
+
+function portBadges(ports) {
+  const map = { mqtt: 'MQTT', influx: 'InfluxDB', nodered: 'Node-RED', grafana: 'Grafana', ssh: 'SSH' };
+  const on = Object.entries(map).filter(([k]) => ports && ports[k]);
+  return on.length
+    ? on.map(([, label]) => `<span class="port-badge">${label}</span>`).join('')
+    : '<span class="muted">no known services</span>';
+}
+
+function connItem(host, ports, online, active) {
+  return `<div class="conn-item ${active ? 'active' : ''}">
+    <span class="conn-dot ${online ? 'on' : 'off'}"></span>
+    <span class="conn-host mono">${host}</span>
+    <span class="conn-ports">${online ? portBadges(ports) : '<span class="muted">offline</span>'}</span>
+    <span class="spacer"></span>
+    ${active ? '<span class="conn-badge">Connected</span>' : `<button class="btn ghost sm" data-connect="${host}" ${online ? '' : 'disabled'}>Connect</button>`}
+  </div>`;
+}
+
+function renderConnections() {
+  const el = $('#connTree');
+  if (!el) return;
+  const active = connState.active;
+  $('#connActive').innerHTML = active
+    ? `<span class="conn-dot on"></span> Connected to <b>${active}</b>`
+    : '<span class="conn-dot off"></span> Not connected';
+
+  const eps = connState.endpoints.length
+    ? connState.endpoints.map((e) => connItem(e.host, e.ports, e.online, e.host === active)).join('')
+    : `<div class="conn-empty">${connState.probing ? 'Probing endpoints…' : 'No endpoints configured.'}</div>`;
+
+  const disc = connState.discovered.length
+    ? connState.discovered.map((h) => connItem(h, { mqtt: true }, true, h === active)).join('')
+    : `<div class="conn-empty">${connState.scanning ? 'Scanning subnet…' : 'Press “Scan network” to browse the local subnet for PAMS hosts.'}</div>`;
+
+  el.innerHTML = `
+    <div class="tree-root"><span class="ti-ico">▣</span> PAMS Network</div>
+    <div class="tree-group">Configured endpoints ${connState.probing ? '<span class="muted">· probing…</span>' : ''}</div>
+    ${eps}
+    <div class="tree-group">Discovered on subnet ${connState.subnets.length ? `<span class="muted">· ${connState.subnets.map((s) => s + '.0/24').join(', ')}</span>` : ''}</div>
+    ${disc}`;
+
+  el.querySelectorAll('[data-connect]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      await window.predator.connectTo(b.dataset.connect);
+      setTimeout(doProbe, 700);
+    })
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Demo mode (simulated data)
 // ---------------------------------------------------------------------------
 function demoTick() {
@@ -826,6 +930,122 @@ const DOCS = [
       PAMS already publishes and does not change anything on the Pi. Write actions
       (points, services) are disabled until a gateway is added, and will require
       explicit confirmation.</p>`
+  },
+  {
+    title: 'Connections manager (RSWho-style)',
+    tags: 'connections rswho rslinx browse scan network discover connect endpoint manager select driver online offline',
+    body: `<p>The <b>Connections</b> view is a network browser, similar to RSLinx
+      RSWho. It shows the PAMS network as a tree and lets you find and pick the
+      host.</p>
+      <ul>
+        <li><b>Refresh</b> — probes every configured endpoint and shows which are
+          online and which services answer (MQTT, InfluxDB, Node-RED, Grafana, SSH).</li>
+        <li><b>Scan network</b> — sweeps your PC's local subnet(s) for any host with
+          the MQTT port open, so you can find <code>alpha-p</code> even without a
+          hostname.</li>
+        <li><b>Connect</b> — click Connect on a host to make it the active
+          connection; Predator remembers it for next time.</li>
+        <li><b>Add host or IP</b> — type an address and press Add to include it in
+          the endpoint list.</li>
+      </ul>
+      <p>Green dot = reachable, grey = offline. The banner shows the currently
+      connected host.</p>`
+  },
+  {
+    title: 'First run & prerequisites',
+    tags: 'first run install prerequisites requirements setup start windows launch',
+    body: `<p>To run the app you need nothing but the Predator installer or exe — the
+      runtime is bundled and no internet is required.</p>
+      <p>On first launch Predator opens on the Dashboard and begins searching for
+      <code>alpha-p</code>. With no live host, press <b>Demo</b>, or open
+      <b>Connections</b> to browse the network and connect.</p>`
+  },
+  {
+    title: 'Network ports reference',
+    tags: 'ports reference 1883 8086 1880 3000 22 9443 mqtt influxdb nodered grafana ssh portainer firewall',
+    body: `<ul>
+        <li><code>1883</code> — MQTT broker (Predator's live data source)</li>
+        <li><code>8086</code> — InfluxDB (history, future use)</li>
+        <li><code>1880</code> — Node-RED editor</li>
+        <li><code>3000</code> — Grafana dashboards</li>
+        <li><code>22</code> — SSH (management)</li>
+        <li><code>9443</code> — Portainer (container management)</li>
+      </ul>
+      <p>Predator only needs <code>1883</code> for live data. Allow outbound TCP to
+      these on the LAN in your firewall.</p>`
+  },
+  {
+    title: 'Data model & MQTT topics',
+    tags: 'data mqtt topics pams freezers scored payload json fields schema unit_id',
+    body: `<p>Predator subscribes to two topic trees on the broker:</p>
+      <ul>
+        <li><code>pams/freezers/&lt;unit&gt;</code> — raw readings (temperature, door)</li>
+        <li><code>pams/scored/&lt;unit&gt;</code> — ML-enriched readings (health, RUL,
+          anomaly, per-model scores)</li>
+      </ul>
+      <p>Each message is JSON keyed by <code>unit_id</code>. Predator merges both
+      streams per unit and keeps a rolling in-memory history for sparklines and
+      trends.</p>`
+  },
+  {
+    title: 'Navigation tips',
+    tags: 'navigation sidebar views move switch layout',
+    body: `<p>Use the left sidebar to switch views. Data-driven views (Dashboard,
+      Trends, Health) update live; reference views (Connections, Devices, Points,
+      Services) and the docs stay put until you act. The status pill, Demo, and
+      Reconnect are always in the top bar.</p>`
+  },
+  {
+    title: 'Updating Predator',
+    tags: 'update upgrade version new build reinstall',
+    body: `<p>Predator has no auto-update (by design — it is offline). To update,
+      build a new installer from the latest source (<code>npm run dist</code>) and
+      run it on each PC; it upgrades in place and keeps your settings.</p>`
+  },
+  {
+    title: 'Uninstalling & resetting settings',
+    tags: 'uninstall remove reset delete settings config appdata clean',
+    body: `<p>Uninstall via Windows <b>Apps &amp; features</b> (installer build) or
+      delete the portable exe. To reset connection settings, delete
+      <code>%APPDATA%\\Predator\\predator-config.json</code>; Predator recreates
+      defaults on next launch.</p>`
+  },
+  {
+    title: 'Building from source',
+    tags: 'build source npm electron dist installer developer compile node',
+    body: `<p>Requirements: Node.js 18+ and internet once, to install dependencies.</p>
+      <ul>
+        <li><code>npm install</code> — install dependencies</li>
+        <li><code>npm start</code> — run in development</li>
+        <li><code>npm run dist</code> — build a Windows installer + portable exe in
+          <code>dist\\</code></li>
+      </ul>
+      <p>The produced installer is fully offline and self-contained.</p>`
+  },
+  {
+    title: 'FAQ',
+    tags: 'faq questions common why how empty many pcs internet',
+    body: `<p><b>Does Predator change anything on the Pi?</b> No — it reads existing
+      data only. Writes are disabled until a gateway is added.</p>
+      <p><b>Do I need internet?</b> No, only the local network to the Pi.</p>
+      <p><b>Why is the dashboard empty when connected?</b> Because no freezer or
+      simulator is publishing yet — use Demo to verify the UI.</p>
+      <p><b>Can I run it on many PCs?</b> Yes — install the same build anywhere;
+      settings are per-PC.</p>`
+  },
+  {
+    title: 'Glossary',
+    tags: 'glossary terms definitions bacnet mqtt influxdb rul mdns link-local anomaly hmm lstm isolation forest ensemble',
+    body: `<ul>
+        <li><b>BACnet</b> — building-automation protocol for freezer/BMS points.</li>
+        <li><b>MQTT</b> — lightweight publish/subscribe messaging; the live feed.</li>
+        <li><b>InfluxDB</b> — time-series database storing history.</li>
+        <li><b>RUL</b> — Remaining Useful Life, an estimate in days.</li>
+        <li><b>mDNS / .local</b> — zero-config naming (<code>alpha-p.local</code>).</li>
+        <li><b>Link-local (169.254.x.x)</b> — auto address used on a direct cable.</li>
+        <li><b>IsolationForest / HMM / LSTM</b> — ML models fused into the health score.</li>
+        <li><b>Anomaly</b> — a reading the models flag as abnormal.</li>
+      </ul>`
   }
 ];
 let docsQuery = '';
@@ -888,6 +1108,12 @@ window.addEventListener('DOMContentLoaded', async () => {
   const emptyDemo = $('#emptyDemoBtn');
   if (emptyDemo) emptyDemo.addEventListener('click', () => {
     if (!demo.on) toggleDemo();
+  });
+  $('#connRefresh').addEventListener('click', doProbe);
+  $('#connScan').addEventListener('click', doScan);
+  $('#connAddBtn').addEventListener('click', addConnHost);
+  $('#connAdd').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addConnHost();
   });
 
   window.predator.onStatus((s) => {
