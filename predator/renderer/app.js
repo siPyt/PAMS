@@ -90,7 +90,7 @@ function upsert(msg) {
     }
   }
 
-  render();
+  refreshData();
 }
 
 // ---------------------------------------------------------------------------
@@ -326,14 +326,24 @@ function renderActive() {
       return renderPoints();
     case 'services':
       return renderServices();
+    case 'help':
+      return renderHelp();
     default:
       return;
   }
 }
 
-// Keep existing data-update call sites working: refresh the active view.
+// Full re-render of whatever view is active.
 function render() {
   renderActive();
+}
+
+// Lighter refresh for live ticks — only re-render data-driven views so we never
+// clobber static views (docs, tables) on every message or second.
+function refreshData() {
+  if (activeView === 'dashboard' || activeView === 'trends' || activeView === 'health') {
+    renderActive();
+  }
 }
 
 function firstUnit() {
@@ -687,6 +697,181 @@ function toggleDemo() {
 }
 
 // ---------------------------------------------------------------------------
+// Help / Docs (searchable, offline)
+// ---------------------------------------------------------------------------
+const DOCS = [
+  {
+    title: 'Overview — what Predator is',
+    tags: 'about intro overview cockpit pams freezer offline what is',
+    body: `<p><b>Predator</b> is an offline desktop cockpit for the PAMS freezer-monitoring
+      system. It runs on any Windows PC and talks only to the PAMS host
+      (<code>alpha-p</code>) over the local network — no internet, no cloud.</p>
+      <p>Use the left sidebar to move between views. Everything works offline; the
+      <b>Demo</b> button fills the UI with simulated units so you can explore
+      without a live connection.</p>`
+  },
+  {
+    title: 'Connecting to the Pi (USB / Ethernet / WiFi)',
+    tags: 'connect connection network ethernet usb wifi mdns alpha-p endpoints link',
+    body: `<p>Predator reaches <code>alpha-p</code> over whichever link is plugged in and
+      switches automatically if you swap cables. It tries these in order and uses
+      the first that answers:</p>
+      <ul>
+        <li><code>alpha-p.local</code> — works over any link (recommended)</li>
+        <li><code>alpha-p</code> — plain hostname</li>
+        <li><code>192.168.1.112</code> — WiFi/LAN address</li>
+        <li><code>169.254.7.1</code> — direct-cable fallback</li>
+      </ul>
+      <p><b>Ethernet / direct cable:</b> plug a cable between the PC and the Pi; it
+      connects with no router needed. <b>USB:</b> use a USB-to-Ethernet adapter
+      (the Pi 5 cannot network over a bare USB cable). Change endpoints in
+      <b>Settings</b>.</p>`
+  },
+  {
+    title: 'Demo mode (simulated data)',
+    tags: 'demo simulate placeholder test preview sample data offline',
+    body: `<p>Click <b>Demo</b> (top-right) to generate four simulated freezers that
+      update every 2 seconds. The status pill turns teal and reads
+      <b>demo mode</b>. Click it again to stop and return to live/searching.</p>
+      <p>Demo data is generated inside the app — it never touches the Pi or PAMS.</p>`
+  },
+  {
+    title: 'Dashboard',
+    tags: 'dashboard fleet units cards summary health temperature door anomaly sparkline',
+    body: `<p>The fleet at a glance. Each card shows temperature, a color-coded health
+      ring, a temperature sparkline, door state, RUL, thermal velocity, inferred
+      state, and anomaly/training badges. The top bar totals healthy / watch /
+      critical / anomalies.</p>
+      <p>Colors: <b>green</b> healthy (≥80), <b>amber</b> watch (50–79),
+      <b>red</b> critical (&lt;50).</p>`
+  },
+  {
+    title: 'Devices (BACnet explorer)',
+    tags: 'devices bacnet yabe explorer tree objects present value discover',
+    body: `<p>A YABE-style explorer. Pick a device on the left to see its objects
+      (analog-input, binary-input, analog-value) with present values and R/W
+      access. In the current build this is a <b>preview</b> with representative
+      data; live discovery/read activates with the Pi-side gateway.</p>`
+  },
+  {
+    title: 'Points (read / write)',
+    tags: 'points icc configurator read write present value priority table',
+    body: `<p>A flat table of every point across devices — like an ICC configurator.
+      Shows value, units, and read/write access. Writing is disabled in preview
+      and will require confirmation once the gateway is connected.</p>`
+  },
+  {
+    title: 'Trends',
+    tags: 'trends chart history graph temperature health time series',
+    body: `<p>Pick a unit to chart its temperature (teal) and health (green) over time.
+      History builds while the app is open (live or demo). Turn on <b>Demo</b> if
+      no units are present yet.</p>`
+  },
+  {
+    title: 'Health / ML — what the numbers mean',
+    tags: 'health ml machine learning isolation forest hmm lstm rul anomaly ensemble thermal velocity',
+    body: `<p>Per-unit model breakdown:</p>
+      <ul>
+        <li><b>Combined / Ensemble health</b> — fused score across models (0–100)</li>
+        <li><b>IsolationForest / HMM / LSTM</b> — each model's own health estimate</li>
+        <li><b>RUL</b> — remaining useful life, in days</li>
+        <li><b>Thermal velocity</b> — rate of temperature change</li>
+        <li><b>Inferred state</b> — nominal, defrost, warming, door-open</li>
+      </ul>`
+  },
+  {
+    title: 'Services',
+    tags: 'services systemd containers docker status start stop restart pams-ml pams-bms',
+    body: `<p>Lists the PAMS services and containers (broker, Node-RED, InfluxDB,
+      Grafana, ML/BMS) with status. Controls are a <b>preview</b>; live status and
+      start/stop/restart activate with the Pi-side gateway.</p>`
+  },
+  {
+    title: 'Settings (endpoints & ports)',
+    tags: 'settings endpoints host ip port mqtt influxdb configure save reconnect',
+    body: `<p>Edit the endpoint list (one per line) and ports, then <b>Save &amp;
+      reconnect</b>. Predator tries endpoints top-to-bottom. Settings are stored
+      per-PC at <code>%APPDATA%\\Predator\\predator-config.json</code>.</p>`
+  },
+  {
+    title: 'Install on another PC',
+    tags: 'install build dist installer exe distribute deploy setup offline',
+    body: `<p>On a machine with internet, run <code>npm run dist</code> in the
+      <code>predator</code> folder. This produces an installer and a portable app
+      in <code>dist\\</code>:</p>
+      <ul>
+        <li><code>Predator Setup x.y.z.exe</code> — double-click installer</li>
+        <li><code>Predator x.y.z.exe</code> — portable, no install</li>
+      </ul>
+      <p>Copy either to any desktop. No internet or dependencies are needed to run.</p>`
+  },
+  {
+    title: 'Troubleshooting — no data / can\u2019t connect',
+    tags: 'troubleshoot no data blank empty not connecting problem fix spinner waiting broker',
+    body: `<p>If the Dashboard says <b>No live data</b>:</p>
+      <ul>
+        <li>Confirm the PC is on the same network as <code>alpha-p</code> (or
+          cabled to it).</li>
+        <li>Check the status pill (top-right) — <b>connected</b> vs
+          <b>searching</b>.</li>
+        <li>Even when connected, the dashboard stays empty until a freezer (or a
+          simulator) publishes data. Use <b>Demo</b> to verify the UI works.</li>
+        <li>Verify endpoints/ports in <b>Settings</b>, then Save &amp; reconnect.</li>
+      </ul>`
+  },
+  {
+    title: 'Safety & privacy',
+    tags: 'safety privacy offline secure telemetry pams-safe read-only',
+    body: `<p>Predator makes no internet calls and has no telemetry. It reads the data
+      PAMS already publishes and does not change anything on the Pi. Write actions
+      (points, services) are disabled until a gateway is added, and will require
+      explicit confirmation.</p>`
+  }
+];
+let docsQuery = '';
+
+function escapeHtml(s) {
+  return String(s).replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
+  );
+}
+
+function highlightTitle(text, q) {
+  if (!q) return escapeHtml(text);
+  const i = text.toLowerCase().indexOf(q);
+  if (i < 0) return escapeHtml(text);
+  return (
+    escapeHtml(text.slice(0, i)) +
+    '<mark>' +
+    escapeHtml(text.slice(i, i + q.length)) +
+    '</mark>' +
+    escapeHtml(text.slice(i + q.length))
+  );
+}
+
+function renderHelp() {
+  const box = $('#docs');
+  const q = docsQuery.trim().toLowerCase();
+  const matches = DOCS.filter(
+    (d) => !q || (d.title + ' ' + d.tags + ' ' + d.body).toLowerCase().includes(q)
+  );
+  $('#docsCount').textContent = q
+    ? `${matches.length} of ${DOCS.length} topics`
+    : `${DOCS.length} topics`;
+  if (!matches.length) {
+    box.innerHTML = `<div class="preview-note big">No topics match “${escapeHtml(docsQuery)}”.</div>`;
+    return;
+  }
+  box.innerHTML = matches
+    .map(
+      (d) =>
+        `<article class="doc"><h3>${highlightTitle(d.title, q)}</h3><div class="doc-body">${d.body}</div></article>`
+    )
+    .join('');
+}
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 window.addEventListener('DOMContentLoaded', async () => {
@@ -696,6 +881,14 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('#demoBtn').addEventListener('click', toggleDemo);
   $('#reconnectBtn').addEventListener('click', () => window.predator.reconnect());
   $('#saveBtn').addEventListener('click', saveSettings);
+  $('#docsSearch').addEventListener('input', (e) => {
+    docsQuery = e.target.value;
+    renderHelp();
+  });
+  const emptyDemo = $('#emptyDemoBtn');
+  if (emptyDemo) emptyDemo.addEventListener('click', () => {
+    if (!demo.on) toggleDemo();
+  });
 
   window.predator.onStatus((s) => {
     state.status = s;
@@ -711,6 +904,6 @@ window.addEventListener('DOMContentLoaded', async () => {
   renderStatus();
   navigate('dashboard');
 
-  // Refresh timers / active view each second.
-  setInterval(render, 1000);
+  // Refresh data-driven views (timers, sparklines) each second.
+  setInterval(refreshData, 1000);
 });
