@@ -30,78 +30,172 @@
           Demo
         </button>
         <button id="reconnectBtn" class="btn ghost" title="Reconnect">↻</button>
-        <button id="settingsBtn" class="btn ghost" title="Settings">⚙</button>
       </div>
     </header>
 
-    <main class="content">
-      <div id="summary" class="summary hidden">
-        <div class="sum-card">
-          <div class="sum-val" id="sumUnits">0</div>
-          <div class="sum-lbl">Units</div>
-        </div>
-        <div class="sum-card">
-          <div class="sum-val ok" id="sumOk">0</div>
-          <div class="sum-lbl">Healthy</div>
-        </div>
-        <div class="sum-card">
-          <div class="sum-val warn" id="sumWarn">0</div>
-          <div class="sum-lbl">Watch</div>
-        </div>
-        <div class="sum-card">
-          <div class="sum-val crit" id="sumCrit">0</div>
-          <div class="sum-lbl">Critical</div>
-        </div>
-        <div class="sum-card">
-          <div class="sum-val crit" id="sumAnom">0</div>
-          <div class="sum-lbl">Anomalies</div>
-        </div>
-      </div>
+    <div class="shell">
+      <nav class="sidebar" id="nav">
+        <button class="nav-item active" data-view="dashboard">
+          <span class="nav-ico">▦</span><span>Dashboard</span>
+        </button>
+        <button class="nav-item" data-view="devices">
+          <span class="nav-ico">◆</span><span>Devices</span>
+        </button>
+        <button class="nav-item" data-view="points">
+          <span class="nav-ico">≡</span><span>Points</span>
+        </button>
+        <button class="nav-item" data-view="trends">
+          <span class="nav-ico">◔</span><span>Trends</span>
+        </button>
+        <button class="nav-item" data-view="health">
+          <span class="nav-ico">✚</span><span>Health / ML</span>
+        </button>
+        <button class="nav-item" data-view="services">
+          <span class="nav-ico">▣</span><span>Services</span>
+        </button>
+        <button class="nav-item" data-view="settings">
+          <span class="nav-ico">⚙</span><span>Settings</span>
+        </button>
+        <div class="nav-foot">v0.1.0 · offline</div>
+      </nav>
 
-      <section id="grid" class="grid"></section>
+      <main class="content">
+        <!-- Dashboard -->
+        <section class="view" data-view="dashboard">
+          <div class="view-head">
+            <h1>Dashboard</h1>
+            <p class="view-sub">
+              Freezer fleet — health, temperature, anomalies.
+            </p>
+          </div>
+          <div id="summary" class="summary hidden">
+            <div class="sum-card">
+              <div class="sum-val" id="sumUnits">0</div>
+              <div class="sum-lbl">Units</div>
+            </div>
+            <div class="sum-card">
+              <div class="sum-val ok" id="sumOk">0</div>
+              <div class="sum-lbl">Healthy</div>
+            </div>
+            <div class="sum-card">
+              <div class="sum-val warn" id="sumWarn">0</div>
+              <div class="sum-lbl">Watch</div>
+            </div>
+            <div class="sum-card">
+              <div class="sum-val crit" id="sumCrit">0</div>
+              <div class="sum-lbl">Critical</div>
+            </div>
+            <div class="sum-card">
+              <div class="sum-val crit" id="sumAnom">0</div>
+              <div class="sum-lbl">Anomalies</div>
+            </div>
+          </div>
+          <section id="grid" class="grid"></section>
+          <div id="empty" class="empty">
+            <div class="empty-ring"></div>
+            <h2>Waiting for PAMS data…</h2>
+            <p id="emptyMsg">
+              Searching for <b>alpha-p</b> over USB / Ethernet…
+            </p>
+            <p class="empty-hint">
+              No units have reported yet — or press <b>Demo</b> (top-right) to
+              preview the UI with simulated units.
+            </p>
+          </div>
+        </section>
 
-      <div id="empty" class="empty">
-        <div class="empty-ring"></div>
-        <h2>Waiting for PAMS data…</h2>
-        <p id="emptyMsg">Searching for <b>alpha-p</b> over USB / Ethernet…</p>
-        <p class="empty-hint">
-          No units have reported yet. Check the connection status, top-right.
-        </p>
-      </div>
-    </main>
+        <!-- Devices -->
+        <section class="view hidden" data-view="devices">
+          <div class="view-head">
+            <h1>Devices <span class="preview-tag">preview</span></h1>
+            <p class="view-sub">BACnet device explorer (YABE-style).</p>
+          </div>
+          <div class="split">
+            <div class="tree" id="deviceTree"></div>
+            <div class="panel" id="deviceObjects"></div>
+          </div>
+        </section>
 
-    <!-- Settings modal -->
-    <div id="modal" class="modal hidden">
-      <div class="modal-card">
-        <h2>Connection</h2>
-        <p class="modal-sub">
-          Predator reaches the PAMS host over whichever link is live. It tries
-          these endpoints top-to-bottom and connects to the first that answers.
-        </p>
-        <label>
-          Endpoints (one per line — hostname or IP)
-          <textarea
-            id="cfgHosts"
-            rows="4"
-            spellcheck="false"
-            placeholder="alpha-p.local&#10;alpha-p&#10;192.168.1.112"
-          ></textarea>
-        </label>
-        <div class="row2">
-          <label>
-            MQTT port
-            <input id="cfgMqttPort" type="number" min="1" max="65535" />
-          </label>
-          <label>
-            InfluxDB port
-            <input id="cfgInfluxPort" type="number" min="1" max="65535" />
-          </label>
-        </div>
-        <div class="modal-actions">
-          <button id="cancelBtn" class="btn ghost">Cancel</button>
-          <button id="saveBtn" class="btn primary">Save &amp; reconnect</button>
-        </div>
-      </div>
+        <!-- Points -->
+        <section class="view hidden" data-view="points">
+          <div class="view-head">
+            <h1>Points <span class="preview-tag">preview</span></h1>
+            <p class="view-sub">Read / write BACnet points (ICC-style).</p>
+          </div>
+          <div id="pointsPanel" class="panel"></div>
+        </section>
+
+        <!-- Trends -->
+        <section class="view hidden" data-view="trends">
+          <div class="view-head">
+            <h1>Trends</h1>
+            <p class="view-sub">Temperature &amp; health history.</p>
+          </div>
+          <div class="panel" id="trendsPanel"></div>
+        </section>
+
+        <!-- Health / ML -->
+        <section class="view hidden" data-view="health">
+          <div class="view-head">
+            <h1>Health / ML</h1>
+            <p class="view-sub">
+              Per-unit model breakdown: IsolationForest · HMM · LSTM · RUL.
+            </p>
+          </div>
+          <section id="healthGrid" class="grid"></section>
+          <div id="healthEmpty" class="empty">
+            <div class="empty-ring"></div>
+            <h2>No units yet</h2>
+            <p>Press <b>Demo</b> (top-right) to preview ML scoring per unit.</p>
+          </div>
+        </section>
+
+        <!-- Services -->
+        <section class="view hidden" data-view="services">
+          <div class="view-head">
+            <h1>Services <span class="preview-tag">preview</span></h1>
+            <p class="view-sub">PAMS services &amp; containers.</p>
+          </div>
+          <div class="panel" id="servicesPanel"></div>
+        </section>
+
+        <!-- Settings -->
+        <section class="view hidden" data-view="settings">
+          <div class="view-head">
+            <h1>Settings</h1>
+            <p class="view-sub">
+              Connection to the PAMS host. Predator tries these endpoints
+              top-to-bottom and connects to the first that answers.
+            </p>
+          </div>
+          <div class="panel settings-panel">
+            <label>
+              Endpoints (one per line — hostname or IP)
+              <textarea
+                id="cfgHosts"
+                rows="4"
+                spellcheck="false"
+                placeholder="alpha-p.local&#10;alpha-p&#10;192.168.1.112"
+              ></textarea>
+            </label>
+            <div class="row2">
+              <label>
+                MQTT port
+                <input id="cfgMqttPort" type="number" min="1" max="65535" />
+              </label>
+              <label>
+                InfluxDB port
+                <input id="cfgInfluxPort" type="number" min="1" max="65535" />
+              </label>
+            </div>
+            <div class="modal-actions">
+              <button id="saveBtn" class="btn primary">
+                Save &amp; reconnect
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
     </div>
 
     <script src="app.js"></script>

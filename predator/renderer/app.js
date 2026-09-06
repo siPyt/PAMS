@@ -273,7 +273,7 @@ function drawSpark(canvas, history) {
   ctx.fill();
 }
 
-function render() {
+function renderDashboard() {
   const units = [...state.units.values()].sort((a, b) => a.id.localeCompare(b.id));
   const grid = $('#grid');
   const empty = $('#empty');
@@ -296,18 +296,310 @@ function render() {
 }
 
 // ---------------------------------------------------------------------------
-// Settings modal
+// Navigation (offline-browsable views, like a project tree)
 // ---------------------------------------------------------------------------
-async function openSettings() {
+let activeView = 'dashboard';
+
+function navigate(view) {
+  activeView = view;
+  document.querySelectorAll('.nav-item').forEach((b) =>
+    b.classList.toggle('active', b.dataset.view === view)
+  );
+  document.querySelectorAll('.view').forEach((v) =>
+    v.classList.toggle('hidden', v.dataset.view !== view)
+  );
+  if (view === 'settings') fillSettings();
+  renderActive();
+}
+
+function renderActive() {
+  switch (activeView) {
+    case 'dashboard':
+      return renderDashboard();
+    case 'trends':
+      return renderTrends();
+    case 'health':
+      return renderHealth();
+    case 'devices':
+      return renderDevices();
+    case 'points':
+      return renderPoints();
+    case 'services':
+      return renderServices();
+    default:
+      return;
+  }
+}
+
+// Keep existing data-update call sites working: refresh the active view.
+function render() {
+  renderActive();
+}
+
+function firstUnit() {
+  const it = state.units.values().next();
+  return it.done ? null : it.value;
+}
+
+// ---------------------------------------------------------------------------
+// Health / ML view
+// ---------------------------------------------------------------------------
+function mlRow(label, val, cls = '') {
+  return `<div class="ml-row"><span>${label}</span><b class="${cls}">${val}</b></div>`;
+}
+
+function renderHealth() {
+  const units = [...state.units.values()].sort((a, b) => a.id.localeCompare(b.id));
+  const grid = $('#healthGrid');
+  const empty = $('#healthEmpty');
+  if (!units.length) {
+    grid.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  grid.innerHTML = '';
+  for (const u of units) {
+    const L = u.last;
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-head">
+        <div class="unit-id">${u.id}</div>
+        <div class="badges">
+          ${Number(L.training) === 1 ? '<span class="badge train">training</span>' : ''}
+          ${L.anomaly ? '<span class="badge anom">anomaly</span>' : ''}
+        </div>
+      </div>
+      <div class="ml-rows">
+        ${mlRow('Combined health', fmt(L.health_score, 0), healthClass(num(L.health_score)))}
+        ${mlRow('Ensemble', fmt(L.ensemble_health, 0))}
+        ${mlRow('IsolationForest', fmt(L.if_health, 0))}
+        ${mlRow('HMM', fmt(L.hmm_health, 0))}
+        ${mlRow('LSTM', fmt(L.lstm_health, 0))}
+        ${mlRow('RUL', L.rul_days == null ? '—' : fmt(L.rul_days, 0) + ' d')}
+        ${mlRow('Thermal velocity', fmt(L.thermal_velocity, 2))}
+        ${mlRow('Inferred state', L.inferred_state || '—')}
+        ${mlRow('Samples', L.n_points == null ? '—' : String(L.n_points))}
+      </div>`;
+    grid.appendChild(card);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Trends view
+// ---------------------------------------------------------------------------
+let trendUnit = null;
+
+function renderTrends() {
+  const panel = $('#trendsPanel');
+  const units = [...state.units.values()].sort((a, b) => a.id.localeCompare(b.id));
+  if (!units.length) {
+    panel.innerHTML =
+      '<div class="preview-note big">No data yet. Turn on <b>Demo</b> (top-right) to preview live trends.</div>';
+    return;
+  }
+  if (!trendUnit || !state.units.has(trendUnit)) trendUnit = units[0].id;
+  panel.innerHTML = `
+    <div class="trend-bar">
+      <label>Unit
+        <select id="trendSel">
+          ${units.map((u) => `<option ${u.id === trendUnit ? 'selected' : ''}>${u.id}</option>`).join('')}
+        </select>
+      </label>
+      <span class="legend"><i class="lg temp"></i>Temperature (°C)</span>
+      <span class="legend"><i class="lg health"></i>Health</span>
+    </div>
+    <canvas id="trendCanvas" width="1000" height="320"></canvas>`;
+  $('#trendSel').addEventListener('change', (e) => {
+    trendUnit = e.target.value;
+    renderTrends();
+  });
+  drawTrend($('#trendCanvas'), state.units.get(trendUnit));
+}
+
+function drawSeries(ctx, hist, yFn, xStep, pad, color, on) {
+  if (!on) return;
+  ctx.beginPath();
+  hist.forEach((p, i) => {
+    const x = pad + i * xStep;
+    const y = yFn(p);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+}
+
+function drawTrend(canvas, u) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  const hist = u.history || [];
+  if (hist.length < 2) return;
+  const pad = 40;
+  const temps = hist.map((p) => p.temp);
+  let tmin = Math.min(...temps);
+  let tmax = Math.max(...temps);
+  if (tmax - tmin < 1) {
+    tmin -= 1;
+    tmax += 1;
+  }
+  const xStep = (w - pad * 2) / (hist.length - 1);
+  const yT = (v) => h - pad - ((v - tmin) / (tmax - tmin)) * (h - pad * 2);
+  const yH = (v) => h - pad - (v / 100) * (h - pad * 2);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad + i * ((h - pad * 2) / 4);
+    ctx.beginPath();
+    ctx.moveTo(pad, y);
+    ctx.lineTo(w - pad, y);
+    ctx.stroke();
+  }
+  drawSeries(ctx, hist, (p) => yH(p.health == null ? 0 : p.health), xStep, pad, '#35d07f',
+    hist.some((p) => p.health != null));
+  drawSeries(ctx, hist, (p) => yT(p.temp), xStep, pad, '#33c9d6', true);
+
+  ctx.fillStyle = '#7d8ea0';
+  ctx.font = '11px Segoe UI';
+  ctx.fillText(`${tmax.toFixed(1)}°C`, 4, pad + 4);
+  ctx.fillText(`${tmin.toFixed(1)}°C`, 4, h - pad + 4);
+  ctx.fillText('100', w - pad + 6, pad + 4);
+  ctx.fillText('0', w - pad + 6, h - pad + 4);
+}
+
+// ---------------------------------------------------------------------------
+// Devices + Points views (BACnet explorer / configurator preview)
+// ---------------------------------------------------------------------------
+const demoDevices = [
+  {
+    id: 1,
+    name: 'Walk-in Freezer BMS',
+    vendor: 'Siemens',
+    mac: 45,
+    objects: [
+      { type: 'analog-input', inst: 1, name: 'Freezer Temp', unit: '°C', src: 'temperature' },
+      { type: 'binary-input', inst: 1, name: 'Door Contact', unit: '', src: 'door_status' },
+      { type: 'analog-value', inst: 50, name: 'PAMS Health Score', unit: '%', src: 'health_score', writable: true }
+    ]
+  },
+  {
+    id: 45001,
+    name: 'RaspberryPi_PAMS_BMS_Node',
+    vendor: 'PAMS',
+    mac: 45,
+    objects: [{ type: 'device', inst: 45001, name: 'Predator Edge Node', unit: '' }]
+  }
+];
+let selDevice = 1;
+
+function fmtPoint(o, val) {
+  if (val == null) return '—';
+  if (o.type === 'binary-input') return Number(val) === 1 ? 'OPEN' : 'closed';
+  if (o.src === 'temperature') return Number(val).toFixed(2);
+  if (o.src === 'health_score') return Number(val).toFixed(0);
+  return String(val);
+}
+
+function renderDevices() {
+  const tree = $('#deviceTree');
+  tree.innerHTML =
+    '<div class="tree-title">Discovered devices <span class="preview-tag">demo</span></div>' +
+    demoDevices
+      .map(
+        (d) =>
+          `<button class="tree-item ${d.id === selDevice ? 'active' : ''}" data-dev="${d.id}"><span class="ti-ico">◆</span>${d.id} · ${d.name}</button>`
+      )
+      .join('');
+  tree.querySelectorAll('.tree-item').forEach((b) =>
+    b.addEventListener('click', () => {
+      selDevice = Number(b.dataset.dev);
+      renderDevices();
+    })
+  );
+  const dev = demoDevices.find((d) => d.id === selDevice);
+  const sample = firstUnit();
+  const rows = dev.objects
+    .map((o) => {
+      const val = o.src && sample ? fmtPoint(o, sample.last[o.src]) : '—';
+      return `<tr><td class="mono">${o.type}:${o.inst}</td><td>${o.name}</td><td class="mono">${val}</td><td>${o.unit || ''}</td><td>${o.writable ? '<span class="pill door-open">W</span>' : '<span class="pill">R</span>'}</td></tr>`;
+    })
+    .join('');
+  $('#deviceObjects').innerHTML = `
+    <div class="panel-title">${dev.name} <span class="muted">· device ${dev.id} · ${dev.vendor} · MAC ${dev.mac}</span></div>
+    <table class="tbl">
+      <thead><tr><th>Object</th><th>Name</th><th>Present value</th><th>Units</th><th>Access</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="preview-note">Live discovery &amp; read/write arrive with the Pi-side gateway (phase 2). Values are ${sample ? 'from demo mode' : 'placeholders — enable Demo'}.</p>`;
+}
+
+function renderPoints() {
+  const sample = firstUnit();
+  const pts = [];
+  for (const d of demoDevices) for (const o of d.objects) if (o.src) pts.push({ dev: d.id, ...o });
+  const rows = pts
+    .map((o) => {
+      const val = sample ? fmtPoint(o, sample.last[o.src]) : '—';
+      return `<tr><td class="mono">${o.dev}</td><td class="mono">${o.type}:${o.inst}</td><td>${o.name}</td><td class="mono">${val}</td><td>${o.unit || ''}</td><td>${o.writable ? '<button class="btn ghost sm" disabled title="Enabled when connected to the gateway">Write…</button>' : '<span class="muted">read-only</span>'}</td></tr>`;
+    })
+    .join('');
+  $('#pointsPanel').innerHTML = `
+    <table class="tbl">
+      <thead><tr><th>Device</th><th>Object</th><th>Name</th><th>Value</th><th>Units</th><th>Action</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="preview-note">Writing is disabled in preview; it activates with the Pi gateway and will require confirmation.</p>`;
+}
+
+// ---------------------------------------------------------------------------
+// Services view
+// ---------------------------------------------------------------------------
+const demoServices = [
+  { name: 'pams-ml', kind: 'systemd', desc: 'ML scoring service', state: 'active' },
+  { name: 'pams-bms', kind: 'systemd', desc: 'BACnet BMS node', state: 'inactive' },
+  { name: 'field-mqtt', kind: 'container', desc: 'Mosquitto broker :1883', state: 'active' },
+  { name: 'field-nodered', kind: 'container', desc: 'Node-RED :1880', state: 'active' },
+  { name: 'field-influxdb', kind: 'container', desc: 'InfluxDB :8086', state: 'active' },
+  { name: 'field-grafana', kind: 'container', desc: 'Grafana :3000', state: 'active' }
+];
+
+function renderServices() {
+  const rows = demoServices
+    .map((s) => {
+      const cls = s.state === 'active' ? 'ok' : s.state === 'inactive' ? 'crit' : 'warn';
+      return `<tr>
+        <td><b>${s.name}</b><div class="muted">${s.desc}</div></td>
+        <td>${s.kind}</td>
+        <td><span class="svc-pill ${cls}">${s.state}</span></td>
+        <td class="svc-actions">
+          <button class="btn ghost sm" disabled>Start</button>
+          <button class="btn ghost sm" disabled>Stop</button>
+          <button class="btn ghost sm" disabled>Restart</button>
+        </td></tr>`;
+    })
+    .join('');
+  $('#servicesPanel').innerHTML = `
+    <table class="tbl">
+      <thead><tr><th>Service</th><th>Type</th><th>State</th><th>Controls</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="preview-note">States are a preview. Live status &amp; controls activate with the Pi gateway (phase 2).</p>`;
+}
+
+// ---------------------------------------------------------------------------
+// Settings view
+// ---------------------------------------------------------------------------
+async function fillSettings() {
   const cfg = await window.predator.getConfig();
   $('#cfgHosts').value = (cfg.hosts || []).join('\n');
   $('#cfgMqttPort').value = cfg.mqttPort || 1883;
   $('#cfgInfluxPort').value = cfg.influxPort || 8086;
-  $('#modal').classList.remove('hidden');
-}
-
-function closeSettings() {
-  $('#modal').classList.add('hidden');
 }
 
 async function saveSettings() {
@@ -321,9 +613,8 @@ async function saveSettings() {
     influxPort: Number($('#cfgInfluxPort').value) || 8086
   };
   await window.predator.setConfig(patch);
-  state.units.clear();
-  render();
-  closeSettings();
+  if (!demo.on) state.units.clear();
+  navigate('dashboard');
 }
 
 // ---------------------------------------------------------------------------
@@ -399,14 +690,12 @@ function toggleDemo() {
 // Boot
 // ---------------------------------------------------------------------------
 window.addEventListener('DOMContentLoaded', async () => {
-  $('#settingsBtn').addEventListener('click', openSettings);
-  $('#cancelBtn').addEventListener('click', closeSettings);
-  $('#saveBtn').addEventListener('click', saveSettings);
+  document.querySelectorAll('.nav-item').forEach((b) =>
+    b.addEventListener('click', () => navigate(b.dataset.view))
+  );
   $('#demoBtn').addEventListener('click', toggleDemo);
   $('#reconnectBtn').addEventListener('click', () => window.predator.reconnect());
-  $('#modal').addEventListener('click', (e) => {
-    if (e.target.id === 'modal') closeSettings();
-  });
+  $('#saveBtn').addEventListener('click', saveSettings);
 
   window.predator.onStatus((s) => {
     state.status = s;
@@ -420,8 +709,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   const cfg = await window.predator.getConfig();
   state.status.hosts = cfg.hosts;
   renderStatus();
-  render();
+  navigate('dashboard');
 
-  // Refresh "last seen" timers and stale styling each second.
+  // Refresh timers / active view each second.
   setInterval(render, 1000);
 });
