@@ -21,7 +21,7 @@ import json
 
 import paho.mqtt.client as mqtt
 
-from pams_ml import PamsML, ACTIVE_MODELS
+from pams_ml import PamsML, ACTIVE_MODELS, EXTRA_SENSOR_ORDER
 
 
 MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
@@ -29,6 +29,7 @@ MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 IN_TOPIC = os.environ.get("IN_TOPIC", "pams/freezers/+")
 OUT_PREFIX = os.environ.get("OUT_PREFIX", "pams/scored")
 
+SENSOR_KEYS = set(EXTRA_SENSOR_ORDER)
 engine = PamsML()
 
 
@@ -54,7 +55,10 @@ def on_message(client, userdata, msg):
     ts = data.get("ts")
     door = int(data.get("door_status", 0))
 
-    ml = engine.score(unit_id, float(temp), door_status=door, ts=ts)
+    # Any REAL extra BMS soft-sensors the node published flow straight into the ML.
+    sensors = {k: data[k] for k in data if k in SENSOR_KEYS and data[k] is not None}
+
+    ml = engine.score(unit_id, float(temp), door_status=door, ts=ts, sensors=sensors)
 
     enriched = {
         "unit_id": unit_id,
@@ -74,8 +78,14 @@ def on_message(client, userdata, msg):
         "anomaly": ml["anomaly"],
         "training": 1 if ml["training"] else 0,
         "n_points": ml["n_points"],
+        # multi-sensor schema the model is actually using this reading:
+        "channels": ml["channels"],
+        "n_features": ml["n_features"],
         "ts": ts if ts is not None else None,
     }
+    # Echo the real extra sensor values so Influx/Grafana can trend them too.
+    for k, v in sensors.items():
+        enriched[k] = v
 
     client.publish(f"{OUT_PREFIX}/{unit_id}", json.dumps(enriched), qos=0)
 
@@ -87,8 +97,10 @@ def on_message(client, userdata, msg):
         extra += f" lstm={ml['lstm_health']}"
     if ml["rul_days"] is not None:
         extra += f" rul={ml['rul_days']}d"
+    if sensors:
+        extra += f" +{len(sensors)}sensors"
     print(f"{unit_id}: temp={round(float(temp),2)}C  health={ml['health_score']} ens={ml['ensemble_health']}{extra}  "
-          f"[{tag}]  ({ml['n_points']}/{ml['baseline']})")
+          f"[{tag}]  ({ml['n_points']}/{ml['baseline']}, {ml['n_features']}feat)")
 
 
 def main():

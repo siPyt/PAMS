@@ -72,6 +72,24 @@ MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 POLL_SECONDS = float(os.environ.get("POLL_SECONDS", "5"))
 APDU_TIMEOUT_MS = os.environ.get("APDU_TIMEOUT_MS", "3000")
 
+
+# Optional REAL BMS soft-sensors, read every poll and published when they answer.
+# PAMS_EXTRA_POINTS="evaporator_temp=analog-input:2,suction_pressure=analog-input:3,defrost_status=binary-input:2"
+def _parse_extra_points(env_value):
+    points = []
+    for item in (env_value or "").split(","):
+        item = item.strip()
+        if not item or "=" not in item:
+            continue
+        name, obj = item.split("=", 1)
+        if ":" not in obj:
+            continue
+        obj_type, obj_inst = obj.rsplit(":", 1)
+        points.append((name.strip(), obj_type.strip(), obj_inst.strip()))
+    return points
+
+EXTRA_POINTS = _parse_extra_points(os.environ.get("PAMS_EXTRA_POINTS", ""))
+
 TOPIC = f"pams/freezers/{UNIT_ID}"
 
 # Environment handed to every bacnet-stack tool invocation (selects MS/TP).
@@ -151,6 +169,23 @@ def read_door_open():
     return (float(m.group()) != 0.0) if m else None
 
 
+def read_extra_point(obj_type, obj_inst):
+    """Read one optional soft-sensor. Binary objects return 0/1, others a float."""
+    out = bac_read(obj_type, obj_inst)
+    if out is None:
+        return None
+    if "binary" in obj_type.lower():
+        low = out.lower()
+        if "active" in low or low.strip() in ("1", "true", "on"):
+            return 1
+        if "inactive" in low or low.strip() in ("0", "false", "off"):
+            return 0
+        m = _NUM_RE.search(out)
+        return int(float(m.group()) != 0.0) if m else None
+    m = _NUM_RE.search(out)
+    return round(float(m.group()), 2) if m else None
+
+
 def compute_score(live_temp, door_open):
     score = 100.0
     if live_temp > -18.0:
@@ -186,6 +221,12 @@ def poll_once():
     if WRITE_ENABLE:
         wrote = bac_write_real(SCORE_TYPE, SCORE_INST, score)
 
+    extras = {}
+    for name, obj_type, obj_inst in EXTRA_POINTS:
+        val = read_extra_point(obj_type, obj_inst)
+        if val is not None:
+            extras[name] = val
+
     payload = {
         "unit_id": UNIT_ID,
         "temperature": float(round(live_temp, 2)),
@@ -193,11 +234,13 @@ def poll_once():
         "health_score": float(round(score, 1)),
         "ts": time.time(),
     }
+    payload.update(extras)
     mqtt_client.publish(TOPIC, json.dumps(payload), qos=0)
 
+    extra_note = f"  +{len(extras)}/{len(EXTRA_POINTS)} sensors" if EXTRA_POINTS else ""
     print(f"{UNIT_ID}  temp={round(live_temp, 2)}C  door={'OPEN' if door_open else 'closed'}  "
-          f"score={round(score, 1)}  write={'ok' if wrote else ('skip' if not WRITE_ENABLE else 'FAIL')}  "
-          f"-> {TOPIC}")
+          f"score={round(score, 1)}  write={'ok' if wrote else ('skip' if not WRITE_ENABLE else 'FAIL')}"
+          f"{extra_note}  -> {TOPIC}")
 
 
 def main():
@@ -206,6 +249,7 @@ def main():
     print(f"  temp   : {TEMP_TYPE}:{TEMP_INST}")
     print(f"  door   : {DOOR_TYPE}:{DOOR_INST}" if DOOR_ENABLE else "  door   : disabled")
     print(f"  score  : {SCORE_TYPE}:{SCORE_INST} (pri {WRITE_PRIORITY})" if WRITE_ENABLE else "  score  : write disabled")
+    print(f"  extras : {', '.join(f'{n}={t}:{i}' for n, t, i in EXTRA_POINTS) if EXTRA_POINTS else 'none'}")
     print(f"  mqtt   : {MQTT_HOST}:{MQTT_PORT} topic={TOPIC}")
 
     try:
