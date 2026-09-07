@@ -34,7 +34,7 @@ CAMEL = {
     "analog-input": "analogInput", "analog-output": "analogOutput", "analog-value": "analogValue",
     "binary-input": "binaryInput", "binary-output": "binaryOutput", "binary-value": "binaryValue",
     "multi-state-input": "multiStateInput", "multi-state-output": "multiStateOutput",
-    "multi-state-value": "multiStateValue",
+    "multi-state-value": "multiStateValue", "characterstring-value": "characterstringValue",
 }
 
 UNIT = os.environ.get("UNIT_ID", "SIM-ROOM")
@@ -111,6 +111,12 @@ def read_pv(addr, dashed_type, inst):
         val = apdu.propertyValue.cast_out(dt)
     except Exception:
         return None
+    # character-string / text present-value: pass through as a label
+    if dashed_type.startswith("characterstring"):
+        try:
+            return str(val)
+        except Exception:
+            return None
     try:
         return float(val)
     except (TypeError, ValueError):
@@ -164,7 +170,7 @@ def main():
             except Exception:
                 v = None
             if v is not None:
-                payload[chan] = round(v, 3)
+                payload[chan] = round(v, 3) if isinstance(v, float) else v
 
         read_count = len(payload) - 2
         if read_count == 0:

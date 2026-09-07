@@ -33,12 +33,14 @@ OBJ_SHORT = {
     "analogInput": "AI", "analogOutput": "AO", "analogValue": "AV",
     "binaryInput": "BI", "binaryOutput": "BO", "binaryValue": "BV",
     "multiStateInput": "MSI", "multiStateOutput": "MSO", "multiStateValue": "MSV",
+    "characterstringValue": "CSV",
 }
 DASHED = {
     "analogInput": "analog-input", "analogOutput": "analog-output", "analogValue": "analog-value",
     "binaryInput": "binary-input", "binaryOutput": "binary-output", "binaryValue": "binary-value",
     "multiStateInput": "multi-state-input", "multiStateOutput": "multi-state-output",
     "multiStateValue": "multi-state-value",
+    "characterstringValue": "characterstring-value",
 }
 
 

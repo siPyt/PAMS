@@ -59,12 +59,15 @@ def on_message(client, userdata, msg):
 
     # Any REAL extra sensor the node published (any numeric name) flows into the ML.
     sensors = {}
+    labels = {}
     for k, v in data.items():
         if k in NON_SENSOR or v is None:
             continue
         try:
             sensors[k] = float(v)
         except (TypeError, ValueError):
+            if isinstance(v, str):
+                labels[k] = v
             continue
 
     ml = engine.score(unit_id, float(temp), door_status=door, ts=ts, sensors=sensors)
@@ -94,6 +97,9 @@ def on_message(client, userdata, msg):
     }
     # Echo the real extra sensor values so Influx/Grafana can trend them too.
     for k, v in sensors.items():
+        enriched[k] = v
+    # Pass through non-numeric text points (e.g. character-string values) as labels.
+    for k, v in labels.items():
         enriched[k] = v
 
     client.publish(f"{OUT_PREFIX}/{unit_id}", json.dumps(enriched), qos=0)
