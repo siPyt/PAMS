@@ -40,6 +40,11 @@ POINTS_FILE = os.path.expanduser(os.environ.get("PAMS_POINTS_FILE", "~/pams_poin
 MSTP_CONF = os.path.expanduser(os.environ.get("PAMS_CONFIG", "~/pams_mstp.conf"))
 SYSTEMD_UNITS = ["pams-ml", "pams-bms"]
 
+# BACnet/IP is handled by a bacpypes helper (venv python) because the bundled
+# bacnet-stack CLI tools are compiled MS/TP-only. See pams_bacnet_ip.py.
+VENV_PY = os.path.expanduser(os.environ.get("PAMS_VENV_PY", "~/pams_env/bin/python"))
+IP_HELPER = os.path.expanduser(os.environ.get("PAMS_BACNET_IP_HELPER", "~/pams_bacnet_ip.py"))
+
 # Common BACnet MS/TP baud rates, most-likely first (matches pams_control.py).
 SWEEP_BAUDS = ["38400", "76800", "9600", "19200", "115200"]
 _TOTAL_RE = re.compile(r"Total Devices:\s*(\d+)")
@@ -184,6 +189,27 @@ def cached(key, ttl, producer):
     return val
 
 
+def run_ip_helper(args, timeout=20):
+    """Call the bacpypes BACnet/IP helper (venv). Returns parsed JSON or None."""
+    if not (os.path.exists(VENV_PY) and os.path.exists(IP_HELPER)):
+        return None
+    try:
+        r = subprocess.run([VENV_PY, IP_HELPER] + [str(a) for a in args],
+                           capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {"error": "timeout", "devices": [], "objects": []}
+    except Exception:  # noqa: BLE001
+        return None
+    for line in reversed((r.stdout or "").splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                return None
+    return None
+
+
 def get_services():
     out = []
     rc, so, _ = run(
@@ -252,6 +278,12 @@ def get_capabilities():
 
 
 def get_devices(datalink="mstp", iface=None):
+    if datalink == "bip":
+        res = run_ip_helper(["whois"], timeout=12)
+        if res is not None:
+            return {"devices": res.get("devices", []), "datalink": "bip",
+                    "note": res.get("note", ""), "ts": time.time()}
+        return {"devices": [], "note": "BACnet/IP helper unavailable", "ts": time.time()}
     tool = os.path.join(BACNET_BIN, "bacwi")
     if not os.path.exists(tool):
         return {"devices": [], "note": "bacnet-stack tools not installed", "ts": time.time()}
@@ -264,21 +296,15 @@ def get_devices(datalink="mstp", iface=None):
 
 
 def get_ip_scan(target=None):
-    """BACnet/IP Who-Is. Broadcast on the LAN, OR directed (unicast) to a specific
-    device IP via `target` (e.g. '10.1.2.3:47808') to reach another subnet."""
-    tool = os.path.join(BACNET_BIN, "bacwi")
-    if not os.path.exists(tool):
-        return {"devices": [], "note": "bacnet-stack tools not installed", "ts": time.time()}
-    cmd = [tool] + (["--mac", target] if target else [])
-    rc, so, se = run(cmd, timeout=12, env=bacnet_env("bip"))
-    devices = [{"instance": i} for i in _parse_devices(so)]
-    if target and not devices:
-        note = f"no answer from {target} (check IP/port and that it is routable)"
-    else:
-        note = "" if devices else "no BACnet/IP devices answered the Who-Is broadcast"
-    if rc == 124:
-        note = "discovery timed out"
-    return {"devices": devices, "datalink": "bip", "target": target, "note": note, "ts": time.time()}
+    """BACnet/IP Who-Is via the bacpypes helper (broadcast, or directed to `target`
+    for another subnet). The bacnet-stack CLI is MS/TP-only, so IP goes here."""
+    res = run_ip_helper(["whois"] + ([target] if target else []), timeout=14)
+    if res is not None:
+        res.setdefault("datalink", "bip")
+        res.setdefault("target", target)
+        return res
+    return {"devices": [], "datalink": "bip", "target": target,
+            "note": "BACnet/IP helper unavailable", "ts": time.time()}
 
 
 def get_discover_all():
@@ -303,14 +329,12 @@ def get_discover_all():
         connections.append({"transport": "mstp", "where": port, "baud": found_baud, "count": len(devs)})
         for i in devs:
             devices.append({"instance": i, "datalink": "mstp", "iface": port, "baud": found_baud})
-    # BACnet/IP: each interface, Who-Is broadcast.
-    for itf in caps["interfaces"]:
-        name = itf["iface"]
-        _, so, _ = run([tool], timeout=10, env=bacnet_env("bip", iface=name))
-        d = _parse_devices(so)
-        connections.append({"transport": "bip", "where": name, "count": len(d)})
-        for i in d:
-            devices.append({"instance": i, "datalink": "bip", "iface": name})
+    # BACnet/IP: one broadcast Who-Is via the bacpypes helper (covers the subnet).
+    ip = run_ip_helper(["whois"], timeout=12) or {}
+    ip_devs = ip.get("devices", [])
+    connections.append({"transport": "bip", "where": "LAN broadcast", "count": len(ip_devs)})
+    for d in ip_devs:
+        devices.append({"instance": d.get("instance"), "datalink": "bip", "iface": None})
     note = "" if devices else "scanned all links; no devices answered yet"
     return {"connections": connections, "devices": devices, "count": len(devices), "note": note, "ts": time.time()}
 
@@ -394,13 +418,17 @@ def suggest_channel(object_name):
 
 def get_scan(device, limit=250, datalink="mstp", iface=None, baud=None, target=None):
     """YABE-style: read a device's object-list, then each object's name + value.
-    Auto-suggests a PAMS channel per object. `target` = directed IP for BACnet/IP
-    (unicast, crosses subnets). Best-effort; needs live hardware."""
+    BACnet/IP uses the bacpypes helper; MS/TP uses the bacnet-stack CLI."""
+    if not device:
+        return {"objects": [], "note": "no device specified", "ts": time.time()}
+    if datalink == "bip":
+        res = run_ip_helper(["scan", device] + ([target] if target else []), timeout=45)
+        if res is not None:
+            return res
+        return {"objects": [], "device": device, "note": "BACnet/IP helper unavailable", "ts": time.time()}
     tool = os.path.join(BACNET_BIN, "bacrp")
     if not os.path.exists(tool):
         return {"objects": [], "note": "bacnet-stack tools not installed", "ts": time.time()}
-    if not device:
-        return {"objects": [], "note": "no device specified", "ts": time.time()}
     scan_env = bacnet_env(datalink, baud, iface)
     mac = ["--mac", target] if (datalink == "bip" and target) else []
     # Property 76 = object-list on the device object.
