@@ -14,6 +14,7 @@ Exposes REAL data that Predator's Services / Devices / Points views consume:
   GET  /api/discover-all        -> plug&play: every serial port + interface, all devices
   GET  /api/points-map          -> current BMS soft-sensor object mapping
   POST /api/points-map          -> save the mapping (~/pams_points.json)
+  POST /api/monitor             -> auto-start a BACnet/IP poller for a device
 
 Runs as the normal user (no root needed): it only reads `docker`/`systemctl`
 status and runs the bacnet-stack CLI tools, and writes one JSON file in $HOME.
@@ -396,6 +397,63 @@ def save_points_map(data):
     return {"ok": True, "mapping": clean, "count": len(clean), "file": POINTS_FILE, "ts": time.time()}
 
 
+POLLER = os.path.expanduser("~/pams_ip_poller.py")
+
+
+def start_monitor(body):
+    """Auto-start a BACnet/IP poller for a device so it streams to the dashboard.
+    Snapshots the saved point map per-unit, (re)launches the poller (no sudo),
+    and persists it across reboots via the user crontab."""
+    if not isinstance(body, dict):
+        return {"ok": False, "error": "expected JSON object"}
+    try:
+        device = int(body.get("device"))
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "valid device instance required"}
+    datalink = body.get("datalink", "bip")
+    if datalink != "bip":
+        return {"ok": False, "error": "auto-monitor currently supports BACnet/IP"}
+    unit = re.sub(r"[^0-9A-Za-z_-]+", "-", str(body.get("unit_id") or "").strip()).strip("-")
+    if not unit:
+        unit = f"DEV-{device}"
+    if not (os.path.exists(VENV_PY) and os.path.exists(POLLER)):
+        return {"ok": False, "error": "poller/venv not installed on the Pi"}
+    # Per-unit point file so multiple devices don't collide.
+    unit_pts = os.path.expanduser(f"~/pams_points_{unit}.json")
+    try:
+        src = POINTS_FILE if os.path.exists(POINTS_FILE) else None
+        if src:
+            with open(src) as f:
+                data = f.read()
+            with open(unit_pts, "w") as f:
+                f.write(data)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"map snapshot failed: {e}"}
+    # Stop any existing poller for this unit, start a fresh one.
+    run(["pkill", "-f", f"pams_ip_poller.py {unit} "], timeout=5)
+    env = os.environ.copy()
+    env["PAMS_POINTS_FILE"] = unit_pts
+    log = os.path.expanduser(f"~/pams_poller_{unit}.log")
+    try:
+        with open(log, "ab") as lf:
+            subprocess.Popen(["setsid", VENV_PY, "-u", POLLER, unit, str(device)],
+                             env=env, stdout=lf, stderr=lf, stdin=subprocess.DEVNULL,
+                             start_new_session=True)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e)}
+    # Persist across reboots (user crontab).
+    try:
+        cur = subprocess.run(["crontab", "-l"], capture_output=True, text=True).stdout or ""
+        kept = [ln for ln in cur.splitlines()
+                if not re.search(rf"pams_ip_poller\.py {re.escape(unit)}\b", ln)]
+        kept.append(f"@reboot PAMS_POINTS_FILE={unit_pts} setsid {VENV_PY} -u {POLLER} "
+                    f"{unit} {device} >{log} 2>&1")
+        subprocess.run(["crontab", "-"], input="\n".join(kept) + "\n", text=True, timeout=5)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "unit": unit, "device": device, "ts": time.time()}
+
+
 # BACnet object types we scan, mapped to short (ICC-style) codes.
 OBJ_TYPES = {
     "analog-input": "AI", "analog-output": "AO", "analog-value": "AV",
@@ -539,6 +597,16 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(400, {"ok": False, "error": f"invalid JSON: {e}"})
                     return
                 result = save_points_map(body)
+                self._send(200 if result.get("ok") else 400, result)
+            elif u.path == "/api/monitor":
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw.decode("utf-8")) if raw else {}
+                except json.JSONDecodeError as e:
+                    self._send(400, {"ok": False, "error": f"invalid JSON: {e}"})
+                    return
+                result = start_monitor(body)
                 self._send(200 if result.get("ok") else 400, result)
             else:
                 self._send(404, {"error": "not found"})

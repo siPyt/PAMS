@@ -1300,6 +1300,7 @@ const OBJ_SHORT = {
 };
 let mapEntries = []; // [{ name, object, core }]
 let scanObjects = []; // last device scan results
+let lastScan = null; // { device, datalink } of the most recent successful scan (for auto-monitor)
 
 function safeName(s) {
   return String(s).trim().replace(/[^0-9A-Za-z_]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').toLowerCase();
@@ -1413,6 +1414,18 @@ async function savePointMap() {
   const r = await window.predator.gatewayPost('/api/points-map', map);
   if (r && r.ok && r.data && r.data.ok) {
     setMapStatus(`Saved ${r.data.count} points to the Pi`, 'ok');
+    // Auto-start live monitoring of the scanned device (BACnet/IP).
+    if (lastScan && lastScan.datalink === 'bip' && lastScan.device) {
+      setMapStatus(`Saved ${r.data.count} points — starting live monitor…`, 'ok');
+      const m = await window.predator.gatewayPost('/api/monitor', {
+        unit_id: 'DEV-' + lastScan.device, device: lastScan.device, datalink: 'bip'
+      });
+      if (m && m.ok && m.data && m.data.ok) {
+        setMapStatus(`Live: monitoring ${m.data.unit} — check the Dashboard (builds baseline ~5 min)`, 'ok');
+      } else {
+        setMapStatus(`Saved, but auto-monitor failed: ${(m && m.data && m.data.error) || 'gateway'}`, 'warn');
+      }
+    }
   } else {
     const err = (r && r.data && r.data.error) || (r && r.error) || 'gateway offline';
     setMapStatus('Save failed: ' + err, 'warn');
@@ -1575,6 +1588,7 @@ async function scanDevice(ctx) {
   const r = await window.predator.gatewayGet(path, 60000);
   if (r && r.ok && r.data && Array.isArray(r.data.objects)) {
     scanObjects = r.data.objects.map((o) => ({ ...o, _pick: true, _chan: o.suggest || safeName(o.name) }));
+    lastScan = { device: dev, datalink: (ctx && ctx.datalink) || currentDatalink() };
     renderScanResults();
     if (applyBtn) applyBtn.disabled = scanObjects.length === 0;
     setScanStatus(
