@@ -766,6 +766,45 @@ body {
 .xport-sel:focus {
   border-color: var(--accent);
 }
+.cap-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cap-proto {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.cap-proto .cap-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--crit);
+  flex: 0 0 auto;
+}
+.cap-proto.on .cap-dot {
+  background: var(--ok);
+}
+.cap-proto.off {
+  color: var(--text-mut);
+}
+.cap-sub {
+  color: var(--text-mut);
+  font-size: 12px;
+}
+.cap-line {
+  display: flex;
+  gap: 10px;
+  font-size: 12.5px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 5px;
+}
+.cap-k {
+  flex: 0 0 110px;
+  color: var(--text-mut);
+}
 .map-core {
   font-size: 9px;
   text-transform: uppercase;

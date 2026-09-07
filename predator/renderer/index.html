@@ -167,6 +167,22 @@
 
           <div class="panel">
             <div class="panel-head">
+              <h2>What PAMS can access</h2>
+              <p class="view-sub">
+                What the Pi can physically reach and which protocols it can
+                speak. PAMS adapts discovery to whatever is present.
+              </p>
+            </div>
+            <div class="map-actions">
+              <button id="capRefresh" class="btn ghost sm">Refresh</button>
+              <span class="spacer"></span>
+              <span id="capStatus" class="map-status"></span>
+            </div>
+            <div id="capResults" class="cap-results"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
               <h2>Auto-discover from a BACnet device</h2>
               <p class="view-sub">
                 Reads the device's object list (YABE-style) and suggests a
@@ -177,7 +193,11 @@
             </div>
             <div class="map-actions">
               <label class="xport-lbl">Transport:</label>
-              <select id="xport" class="xport-sel" aria-label="BACnet transport">
+              <select
+                id="xport"
+                class="xport-sel"
+                aria-label="BACnet transport"
+              >
                 <option value="mstp">MS/TP (RS-485)</option>
                 <option value="bip">BACnet/IP (LAN)</option>
               </select>

@@ -316,7 +316,10 @@ function navigate(view) {
   if (view === 'settings') fillSettings();
   renderActive();
   if (view === 'connections') doProbe();
-  if (view === 'points') loadPointMap();
+  if (view === 'points') {
+    loadCapabilities();
+    loadPointMap();
+  }
   if (view === 'terminal') {
     initTerminal();
     setTimeout(() => {
@@ -1482,6 +1485,50 @@ function applyScanSelection() {
   setMapStatus(`${picked.length} discovered points added below`, 'ok');
 }
 
+// ----- Capabilities (what PAMS can access) ---------------------------------
+function setCapStatus(text, kind) {
+  const el = $('#capStatus');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'map-status' + (kind ? ' ' + kind : '');
+}
+
+function renderCapabilities(d) {
+  const box = $('#capResults');
+  if (!box) return;
+  const proto = (d.protocols || [])
+    .map(
+      (p) =>
+        `<div class="cap-proto ${p.available ? 'on' : 'off'}">
+          <span class="cap-dot"></span>
+          <b>${escapeHtml(p.name)}</b>
+          <span class="cap-sub">${escapeHtml(p.transport)} — ${p.available ? 'available' : escapeHtml(p.why)}</span>
+        </div>`
+    )
+    .join('');
+  const ports = (d.serial_ports || []).length ? d.serial_ports.map(escapeHtml).join(', ') : 'none detected';
+  const ifaces = (d.interfaces || []).length
+    ? d.interfaces.map((i) => `${escapeHtml(i.iface)} ${escapeHtml(i.cidr)}`).join(', ')
+    : 'none';
+  box.innerHTML = `
+    ${proto}
+    <div class="cap-line"><span class="cap-k">Serial ports</span> <span class="mono">${ports}</span></div>
+    <div class="cap-line"><span class="cap-k">Networks</span> <span class="mono">${ifaces}</span></div>
+    <div class="cap-line"><span class="cap-k">BACnet tools</span> <span class="mono">${d.bacnet_tools ? 'installed' : 'missing'}</span></div>`;
+}
+
+async function loadCapabilities() {
+  setCapStatus('Checking…');
+  const r = await window.predator.gatewayGet('/api/capabilities', 12000);
+  if (r && r.ok && r.data) {
+    renderCapabilities(r.data);
+    const n = (r.data.protocols || []).filter((p) => p.available).length;
+    setCapStatus(`${n} protocol${n === 1 ? '' : 's'} available`, n ? 'ok' : 'warn');
+  } else {
+    setCapStatus('Gateway offline', 'warn');
+  }
+}
+
 // ----- Bus discovery (auto baud sweep + Who-Is) ----------------------------
 function currentDatalink() {
   const sel = $('#xport');
@@ -1695,6 +1742,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Point mapping editor
+  const capRefreshBtn = $('#capRefresh');
+  if (capRefreshBtn) capRefreshBtn.addEventListener('click', loadCapabilities);
   const mapReloadBtn = $('#mapReload');
   if (mapReloadBtn) mapReloadBtn.addEventListener('click', loadPointMap);
   const mapSaveBtn = $('#mapSave');

@@ -5,6 +5,7 @@ PAMS Gateway — minimal, read-only HTTP API for the Predator app.
 Exposes REAL data that Predator's Services / Devices / Points views consume:
   GET  /api/health              -> liveness probe
   GET  /api/services            -> docker containers + systemd unit states
+  GET  /api/capabilities        -> transports/interfaces PAMS can reach + protocols
   GET  /api/devices             -> best-effort BACnet Who-Is discovery
   GET  /api/points?device=<id>  -> best-effort BACnet object reads for a device
   GET  /api/scan?device=<id>    -> YABE-style object-list + names + auto-suggest
@@ -201,6 +202,52 @@ def get_services():
     return {"services": out, "ts": time.time()}
 
 
+def get_capabilities():
+    """Discover what PAMS can physically reach + which protocols it can speak,
+    so Predator can show 'what I have access to' and adapt discovery to it."""
+    import glob
+    ports = sorted(
+        p for pat in ("/dev/ttyUSB*", "/dev/ttyACM*", "/dev/ttyAMA*", "/dev/ttyS[0-9]*")
+        for p in glob.glob(pat)
+    )
+    interfaces = []
+    rc, so, _ = run(["ip", "-o", "-4", "addr", "show"])
+    if rc == 0:
+        for line in so.splitlines():
+            parts = line.split()
+            name = parts[1] if len(parts) > 1 else ""
+            cidr = ""
+            for i, tok in enumerate(parts):
+                if tok == "inet" and i + 1 < len(parts):
+                    cidr = parts[i + 1]
+            if name and cidr and name != "lo":
+                # Skip container/virtual bridges - not real field networks.
+                if name.startswith(("docker", "br-", "veth")):
+                    continue
+                interfaces.append({"iface": name, "cidr": cidr})
+    tools_ok = all(os.path.exists(os.path.join(BACNET_BIN, t)) for t in ("bacwi", "bacrp"))
+    protocols = [
+        {
+            "name": "BACnet MS/TP", "transport": "RS-485 serial",
+            "available": bool(ports and tools_ok),
+            "why": ("serial port + bacnet-stack present" if (ports and tools_ok)
+                    else ("no serial port detected" if not ports else "bacnet-stack tools missing")),
+            "discover": "bus-scan",
+        },
+        {
+            "name": "BACnet/IP", "transport": "Ethernet / WiFi LAN",
+            "available": bool(interfaces and tools_ok),
+            "why": ("network + bacnet-stack present" if (interfaces and tools_ok)
+                    else ("no network interface" if not interfaces else "bacnet-stack tools missing")),
+            "discover": "ip-scan",
+        },
+    ]
+    return {
+        "serial_ports": ports, "interfaces": interfaces,
+        "bacnet_tools": tools_ok, "protocols": protocols, "ts": time.time(),
+    }
+
+
 def get_devices(datalink="mstp"):
     tool = os.path.join(BACNET_BIN, "bacwi")
     if not os.path.exists(tool):
@@ -374,6 +421,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True, "ts": time.time()})
             elif u.path == "/api/services":
                 self._send(200, cached("services", 4, get_services))
+            elif u.path == "/api/capabilities":
+                self._send(200, cached("capabilities", 10, get_capabilities))
             elif u.path == "/api/devices":
                 dl = (q.get("datalink") or ["mstp"])[0]
                 self._send(200, cached(f"devices:{dl}", 30, lambda: get_devices(dl)))
