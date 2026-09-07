@@ -13,10 +13,11 @@ contextBridge.exposeInMainWorld('predator', {
   connectTo: (host) => ipcRenderer.invoke('app:connectTo', host),
   gatewayGet: (pathname) => ipcRenderer.invoke('gateway:get', pathname),
   term: {
-    run: (cmd) => ipcRenderer.invoke('term:run', cmd),
+    start: () => ipcRenderer.invoke('term:start'),
+    write: (data) => ipcRenderer.send('term:write', data),
+    resize: (cols, rows) => ipcRenderer.send('term:resize', { cols, rows }),
     reset: () => ipcRenderer.invoke('term:reset'),
     onData: (cb) => ipcRenderer.on('term:data', (_event, m) => cb(m)),
-    onDone: (cb) => ipcRenderer.on('term:done', (_event, m) => cb(m)),
     onExit: (cb) => ipcRenderer.on('term:exit', (_event, m) => cb(m))
   }
 });

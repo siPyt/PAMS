@@ -6,7 +6,7 @@ const fs = require('fs');
 const net = require('net');
 const os = require('os');
 const http = require('http');
-const { spawn } = require('child_process');
+const pty = require('node-pty');
 const mqtt = require('mqtt');
 
 // Predator talks only to the PAMS host, but reaches it over whichever link is
@@ -274,53 +274,47 @@ function gatewayGet(pathname) {
 }
 
 // ---------------------------------------------------------------------------
-// In-app PowerShell terminal (persistent session, line-based)
+// In-app terminal — a real PTY (node-pty) rendered by xterm.js in the renderer.
 // ---------------------------------------------------------------------------
-const SENTINEL = '\u0001PREDATOR_DONE:';
 let shell = null;
-let shellBuf = '';
-
-function handleShellData(text) {
-  shellBuf += text;
-  let idx = shellBuf.indexOf(SENTINEL);
-  while (idx !== -1) {
-    const before = shellBuf.slice(0, idx);
-    if (before) send('term:data', { chunk: before });
-    const rest = shellBuf.slice(idx + SENTINEL.length);
-    const nl = rest.indexOf('\n');
-    if (nl === -1) {
-      shellBuf = SENTINEL + rest; // wait for the exit code line to arrive
-      return;
-    }
-    send('term:done', { code: rest.slice(0, nl).trim() });
-    shellBuf = rest.slice(nl + 1);
-    idx = shellBuf.indexOf(SENTINEL);
-  }
-  const tail = SENTINEL.length - 1;
-  if (shellBuf.length > tail) {
-    send('term:data', { chunk: shellBuf.slice(0, shellBuf.length - tail) });
-    shellBuf = shellBuf.slice(shellBuf.length - tail);
-  }
-}
+let ptyCols = 80;
+let ptyRows = 24;
 
 function ensureShell() {
   if (shell) return;
-  shellBuf = '';
-  shell = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', '-'], {
+  shell = pty.spawn('powershell.exe', ['-NoLogo', '-NoProfile'], {
+    name: 'xterm-256color',
+    cols: ptyCols,
+    rows: ptyRows,
     cwd: app.getPath('home'),
-    windowsHide: true
+    env: process.env
   });
-  shell.stdout.on('data', (d) => handleShellData(d.toString()));
-  shell.stderr.on('data', (d) => send('term:data', { chunk: d.toString(), err: true }));
-  shell.on('exit', () => {
+  shell.onData((data) => send('term:data', { chunk: data }));
+  shell.onExit(() => {
     shell = null;
     send('term:exit', {});
   });
 }
 
-function termRun(cmd) {
+function termStart() {
   ensureShell();
-  shell.stdin.write(`${cmd}\r\nWrite-Output "${SENTINEL}$LASTEXITCODE"\r\n`);
+}
+
+function termWrite(data) {
+  ensureShell();
+  shell.write(data);
+}
+
+function termResize(cols, rows) {
+  ptyCols = Math.max(1, cols | 0) || ptyCols;
+  ptyRows = Math.max(1, rows | 0) || ptyRows;
+  if (shell) {
+    try {
+      shell.resize(ptyCols, ptyRows);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 function termReset() {
@@ -392,9 +386,13 @@ ipcMain.handle('net:probe', () => scanEndpoints());
 ipcMain.handle('net:scan', () => scanSubnet());
 ipcMain.handle('app:connectTo', (_event, host) => connectTo(host));
 ipcMain.handle('gateway:get', (_event, pathname) => gatewayGet(pathname));
-ipcMain.handle('term:run', (_event, cmd) => {
-  termRun(cmd);
+ipcMain.handle('term:start', () => {
+  termStart();
   return true;
+});
+ipcMain.on('term:write', (_event, data) => termWrite(data));
+ipcMain.on('term:resize', (_event, size) => {
+  if (size) termResize(size.cols, size.rows);
 });
 ipcMain.handle('term:reset', () => {
   termReset();

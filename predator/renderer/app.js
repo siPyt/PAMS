@@ -312,8 +312,11 @@ function navigate(view) {
   renderActive();
   if (view === 'connections') doProbe();
   if (view === 'terminal') {
-    const ti = $('#termIn');
-    if (ti) setTimeout(() => ti.focus(), 0);
+    initTerminal();
+    setTimeout(() => {
+      fitTerminal();
+      if (xterm) xterm.focus();
+    }, 0);
   }
 }
 
@@ -1103,31 +1106,48 @@ function renderHelp() {
 }
 
 // ---------------------------------------------------------------------------
-// Terminal (PowerShell) view
+// Terminal (real PTY via xterm.js)
 // ---------------------------------------------------------------------------
-const term = { history: [], hindex: 0 };
+let xterm = null;
+let xfit = null;
+let termStarted = false;
 
-function stripAnsi(s) {
-  // eslint-disable-next-line no-control-regex
-  return s.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
+function initTerminal() {
+  if (xterm) return;
+  const screen = $('#termScreen');
+  if (!screen || typeof Terminal === 'undefined') return;
+  xterm = new Terminal({
+    cursorBlink: true,
+    fontFamily: 'ui-monospace, "Cascadia Code", Consolas, monospace',
+    fontSize: 13,
+    theme: {
+      background: '#05080c',
+      foreground: '#cfe8d6',
+      cursor: '#3ddc84'
+    }
+  });
+  if (typeof FitAddon !== 'undefined' && FitAddon.FitAddon) {
+    xfit = new FitAddon.FitAddon();
+    xterm.loadAddon(xfit);
+  }
+  xterm.open(screen);
+  fitTerminal();
+  xterm.onData((data) => window.predator.term.write(data));
+  window.predator.term.onData((m) => xterm.write(m.chunk));
+  window.predator.term.onExit(() => xterm.write('\r\n\x1b[31m[shell exited]\x1b[0m\r\n'));
+  window.predator.term.start().then(() => {
+    termStarted = true;
+  });
 }
 
-function termAppend(text, cls) {
-  const out = $('#termOut');
-  if (!out) return;
-  const span = document.createElement('span');
-  if (cls) span.className = cls;
-  span.textContent = stripAnsi(text);
-  out.appendChild(span);
-  out.scrollTop = out.scrollHeight;
-}
-
-function termSend(cmd) {
-  if (!cmd || !cmd.trim()) return;
-  termAppend(`\nPS> ${cmd}\n`, 'term-echo');
-  term.history.push(cmd);
-  term.hindex = term.history.length;
-  window.predator.term.run(cmd);
+function fitTerminal() {
+  if (!xterm || !xfit) return;
+  try {
+    xfit.fit();
+    window.predator.term.resize(xterm.cols, xterm.rows);
+  } catch {
+    /* ignore */
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1164,51 +1184,30 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (e.key === 'Enter') addConnHost();
   });
 
-  window.predator.term.onData((m) => termAppend(m.chunk, m.err ? 'term-err' : ''));
-  window.predator.term.onDone(() => {});
-  window.predator.term.onExit(() => termAppend('\n[shell exited]\n', 'term-err'));
-  const termIn = $('#termIn');
-  if (termIn) {
-    termIn.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        termSend(termIn.value);
-        termIn.value = '';
-      } else if (e.key === 'ArrowUp') {
-        if (term.hindex > 0) {
-          term.hindex -= 1;
-          termIn.value = term.history[term.hindex] || '';
-        }
-        e.preventDefault();
-      } else if (e.key === 'ArrowDown') {
-        if (term.hindex < term.history.length - 1) {
-          term.hindex += 1;
-          termIn.value = term.history[term.hindex] || '';
-        } else {
-          term.hindex = term.history.length;
-          termIn.value = '';
-        }
-        e.preventDefault();
-      }
-    });
-  }
-  const termRunBtn = $('#termRun');
-  if (termRunBtn)
-    termRunBtn.addEventListener('click', () => {
-      termSend($('#termIn').value);
-      $('#termIn').value = '';
-    });
+  initTerminal();
   const termClearBtn = $('#termClear');
   if (termClearBtn) termClearBtn.addEventListener('click', () => {
-    $('#termOut').textContent = '';
+    if (xterm) xterm.clear();
   });
   const termResetBtn = $('#termReset');
   if (termResetBtn) termResetBtn.addEventListener('click', () => {
     window.predator.term.reset();
-    termAppend('\n[shell reset]\n', 'term-echo');
+    if (xterm) {
+      xterm.reset();
+      xterm.write('\x1b[36m[shell reset]\x1b[0m\r\n');
+      fitTerminal();
+    }
   });
   document.querySelectorAll('[data-term]').forEach((b) =>
-    b.addEventListener('click', () => termSend(b.dataset.term))
+    b.addEventListener('click', () => {
+      if (!xterm) return;
+      window.predator.term.write(b.dataset.term + '\r');
+      xterm.focus();
+    })
   );
+  window.addEventListener('resize', () => {
+    if (activeView === 'terminal') fitTerminal();
+  });
 
   window.predator.onStatus((s) => {
     state.status = s;
