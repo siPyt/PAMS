@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -444,6 +444,8 @@ ipcMain.on('term:write', (_event, data) => termWrite(data));
 ipcMain.on('term:resize', (_event, size) => {
   if (size) termResize(size.cols, size.rows);
 });
+ipcMain.handle('clipboard:read', () => clipboard.readText());
+ipcMain.on('clipboard:write', (_event, text) => clipboard.writeText(String(text == null ? '' : text)));
 ipcMain.handle('term:reset', () => {
   termReset();
   return true;

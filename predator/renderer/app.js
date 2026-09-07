@@ -1502,6 +1502,40 @@ function initTerminal() {
   xterm.onData((data) => window.predator.term.write(data));
   window.predator.term.onData((m) => xterm.write(m.chunk));
   window.predator.term.onExit(() => xterm.write('\r\n\x1b[31m[shell exited]\x1b[0m\r\n'));
+
+  // Copy / paste: Ctrl+C copies when text is selected (else passes SIGINT),
+  // Ctrl+V and Ctrl+Shift+C/V, plus right-click (copy selection, else paste).
+  const pasteClipboard = () => {
+    window.predator.clipboardRead().then((t) => {
+      if (t) window.predator.term.write(t);
+    });
+  };
+  const copySelection = () => {
+    if (xterm.hasSelection()) {
+      window.predator.clipboardWrite(xterm.getSelection());
+      return true;
+    }
+    return false;
+  };
+  xterm.attachCustomKeyEventHandler((e) => {
+    if (e.type !== 'keydown' || !e.ctrlKey) return true;
+    const key = e.key.toLowerCase();
+    if (key === 'c' && (e.shiftKey || xterm.hasSelection())) {
+      const copied = copySelection();
+      return !(copied || e.shiftKey); // swallow only if we handled it
+    }
+    if (key === 'v') {
+      pasteClipboard();
+      return false;
+    }
+    return true;
+  });
+  screen.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    if (!copySelection()) pasteClipboard();
+    else xterm.clearSelection();
+  });
+
   window.predator.term.start().then(() => {
     termStarted = true;
   });

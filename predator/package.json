@@ -9,7 +9,8 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win",
-    "dist:portable": "electron-builder --win portable"
+    "dist:portable": "electron-builder --win portable",
+    "publish:local": "powershell -ExecutionPolicy Bypass -File scripts/publish-local.ps1"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
