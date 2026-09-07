@@ -11,6 +11,13 @@ Write-Host 'Closing any running Predator...'
 Get-Process Predator, electron -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 600
 
+Write-Host 'Syntax-checking JS (renderer must parse or the app is a dead shell)...'
+foreach ($f in @('renderer\app.js', 'main.js', 'preload.js')) {
+    node --check $f
+    if ($LASTEXITCODE -ne 0) { throw "Syntax error in $f - aborting build" }
+}
+Write-Host '  JS OK'
+
 Write-Host 'Building (electron-builder)...'
 npm run dist | Out-Null
 $unpacked = Join-Path $root 'dist\win-unpacked'

@@ -910,6 +910,8 @@ const DOCS = [
       which discovery options will work. Press <b>Refresh</b> after plugging in a
       cable or adapter.</p>`
   },
+  {
+    title: 'Connecting to the Pi (USB / Ethernet / WiFi)',
     tags: 'connect connection network ethernet usb wifi mdns alpha-p endpoints link',
     body: `<p>Predator reaches <code>alpha-p</code> over whichever link is plugged in and
       switches automatically if you swap cables. It tries these in order and uses
