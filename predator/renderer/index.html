@@ -192,7 +192,15 @@
               </p>
             </div>
             <div class="map-actions">
-              <label class="xport-lbl">Transport:</label>
+              <button id="discoverAllBtn" class="btn primary sm">
+                Discover everything (plug &amp; play)
+              </button>
+              <span class="spacer"></span>
+              <span id="discoverAllStatus" class="map-status"></span>
+            </div>
+            <div id="discoverAllResults" class="scan-results"></div>
+            <div class="map-actions">
+              <label class="xport-lbl">Or target one transport:</label>
               <select
                 id="xport"
                 class="xport-sel"
@@ -204,6 +212,13 @@
               <button id="busScanBtn" class="btn ghost sm">
                 Find bus (auto-baud + Who-Is)
               </button>
+              <input
+                id="scanTarget"
+                class="scan-device"
+                type="text"
+                spellcheck="false"
+                placeholder="Device IP for another subnet (optional, e.g. 10.1.2.3)"
+              />
               <span class="spacer"></span>
               <span id="busScanStatus" class="map-status"></span>
             </div>

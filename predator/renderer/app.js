@@ -1012,6 +1012,26 @@ const DOCS = [
       sensors that aren't published are simply not in the schema.</p>`
   },
   {
+    title: 'BACnet/IP on another subnet (cross-subnet)',
+    tags: 'subnet cross network different vlan router broadcast whois directed unicast ip bbmd foreign device simulator reach remote',
+    body: `<p>BACnet/IP discovery uses a <b>broadcast</b> (Who-Is), and broadcasts do
+      not cross routers/subnets. So "Find devices" only sees devices on the Pi's
+      own subnet.</p>
+      <p>To reach a device on a <b>different subnet</b> (e.g. a simulator on another
+      VLAN) without moving anything:</p>
+      <ul>
+        <li>Set <b>Transport</b> to <b>BACnet/IP</b>.</li>
+        <li>Type the device's <b>IP</b> (optionally <code>ip:port</code>) in the
+          <b>Device IP for another subnet</b> box.</li>
+        <li>Click <b>Find devices</b> (sends a <i>directed</i> unicast Who-Is to
+          that IP — this routes across subnets), then <b>Scan</b> it. Scans also
+          use that IP automatically.</li>
+      </ul>
+      <p>For discovering <i>many unknown</i> devices across subnets you'd use a
+      BBMD/Foreign-Device on the network; for a known device, the directed IP above
+      is the simplest and needs no network changes.</p>`
+  },
+  {
     title: 'Terminal — real PowerShell & SSH',
     tags: 'terminal shell powershell ssh pty console command deploy remote alpha-p run interactive',
     body: `<p>The <b>Terminal</b> view is a <b>real</b> interactive PowerShell
@@ -1536,7 +1556,7 @@ function renderScanResults() {
   );
 }
 
-async function scanDevice() {
+async function scanDevice(ctx) {
   const dev = ($('#scanDevice') && $('#scanDevice').value.trim()) || '';
   if (!dev) {
     setScanStatus('Enter a device instance first', 'warn');
@@ -1544,10 +1564,13 @@ async function scanDevice() {
   }
   setScanStatus('Scanning device ' + dev + '…');
   const applyBtn = $('#scanApply');
-  const r = await window.predator.gatewayGet(
-    '/api/scan?device=' + encodeURIComponent(dev) + '&datalink=' + currentDatalink(),
-    60000
-  );
+  // ctx carries the link a plug&play-discovered device was found on; else the toggle.
+  let path = '/api/scan?device=' + encodeURIComponent(dev) + '&datalink=' + ((ctx && ctx.datalink) || currentDatalink());
+  if (ctx && ctx.iface) path += '&iface=' + encodeURIComponent(ctx.iface);
+  if (ctx && ctx.baud) path += '&baud=' + encodeURIComponent(ctx.baud);
+  const tgt = (ctx && ctx.target) || (($('#scanTarget') && $('#scanTarget').value.trim()) || '');
+  if (tgt) path += '&target=' + encodeURIComponent(tgt);
+  const r = await window.predator.gatewayGet(path, 60000);
   if (r && r.ok && r.data && Array.isArray(r.data.objects)) {
     scanObjects = r.data.objects.map((o) => ({ ...o, _pick: true, _chan: o.suggest || safeName(o.name) }));
     renderScanResults();
@@ -1561,6 +1584,65 @@ async function scanDevice() {
     renderScanResults();
     if (applyBtn) applyBtn.disabled = true;
     setScanStatus('Scan failed: ' + ((r && r.data && r.data.note) || (r && r.error) || 'gateway offline'), 'warn');
+  }
+}
+
+// ----- Plug & play: discover everything across all links -------------------
+function setDiscoverAllStatus(text, kind) {
+  const el = $('#discoverAllStatus');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'map-status' + (kind ? ' ' + kind : '');
+}
+
+function renderDiscoverAll(d) {
+  const box = $('#discoverAllResults');
+  if (!box) return;
+  const conns = (d.connections || [])
+    .map((c) => {
+      const where = c.transport === 'mstp' ? `${c.where}${c.baud ? ' @ ' + c.baud : ''}` : c.where;
+      return `<span class="cap-sub">${escapeHtml(c.transport.toUpperCase())} ${escapeHtml(where)}: ${c.count}</span>`;
+    })
+    .join(' &nbsp;·&nbsp; ');
+  const devs = (d.devices || [])
+    .map((v, i) => {
+      const link = v.datalink === 'mstp' ? `MS/TP ${escapeHtml(v.iface || '')}${v.baud ? ' @ ' + v.baud : ''}` : `BACnet/IP ${escapeHtml(v.iface || '')}`;
+      return `<tr class="bus-hit">
+        <td class="mono">${v.instance}</td>
+        <td>${link}</td>
+        <td><button class="btn ghost sm da-scan" data-idx="${i}">Scan ${v.instance}</button></td>
+      </tr>`;
+    })
+    .join('');
+  box.innerHTML =
+    `<div class="cap-line" style="border:0"><span class="cap-k">Links scanned</span> <span>${conns || '—'}</span></div>` +
+    (devs
+      ? `<table class="tbl scan-tbl"><thead><tr><th>Device</th><th>Found on</th><th>Scan</th></tr></thead><tbody>${devs}</tbody></table>`
+      : '');
+  box.querySelectorAll('.da-scan').forEach((b) =>
+    b.addEventListener('click', () => {
+      const v = d.devices[+b.dataset.idx];
+      const inp = $('#scanDevice');
+      if (inp) inp.value = v.instance;
+      // reflect the device's transport in the toggle for clarity
+      const sel = $('#xport');
+      if (sel) { sel.value = v.datalink; updateBusBtnLabel(); }
+      scanDevice({ datalink: v.datalink, iface: v.iface, baud: v.baud });
+    })
+  );
+}
+
+async function discoverAll() {
+  setDiscoverAllStatus('Scanning every port & network… (this can take a minute)');
+  const r = await window.predator.gatewayGet('/api/discover-all', 240000);
+  if (r && r.ok && r.data && Array.isArray(r.data.devices)) {
+    renderDiscoverAll(r.data);
+    setDiscoverAllStatus(
+      r.data.devices.length ? `Found ${r.data.devices.length} device(s) across ${(r.data.connections || []).length} link(s)` : (r.data.note || 'No devices found on any link'),
+      r.data.devices.length ? 'ok' : 'warn'
+    );
+  } else {
+    setDiscoverAllStatus('Discover failed: ' + ((r && r.data && r.data.note) || (r && r.error) || 'gateway offline'), 'warn');
   }
 }
 
@@ -1692,8 +1774,9 @@ function renderIpDevices(devs) {
 
 async function findBus() {
   if (currentDatalink() === 'bip') {
-    setBusStatus('Broadcasting Who-Is on the LAN…');
-    const r = await window.predator.gatewayGet('/api/ip-scan', 30000);
+    const target = ($('#scanTarget') && $('#scanTarget').value.trim()) || '';
+    setBusStatus(target ? 'Directed Who-Is to ' + target + '…' : 'Broadcasting Who-Is on the LAN…');
+    const r = await window.predator.gatewayGet('/api/ip-scan' + (target ? '?target=' + encodeURIComponent(target) : ''), 30000);
     if (r && r.ok && r.data && Array.isArray(r.data.devices)) {
       renderIpDevices(r.data.devices);
       setBusStatus(
@@ -1860,7 +1943,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     });
   }
   const scanBtn = $('#scanBtn');
-  if (scanBtn) scanBtn.addEventListener('click', scanDevice);
+  if (scanBtn) scanBtn.addEventListener('click', () => scanDevice());
+  const discoverAllBtn = $('#discoverAllBtn');
+  if (discoverAllBtn) discoverAllBtn.addEventListener('click', discoverAll);
   const busScanBtn = $('#busScanBtn');
   if (busScanBtn) busScanBtn.addEventListener('click', findBus);
   const xport = $('#xport');
