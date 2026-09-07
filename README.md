@@ -10,15 +10,67 @@ results through **MQTT → Node-RED → InfluxDB → Grafana**.
  Freezer / Siemens BMS
         │  BACnet (MS/TP over RS-485, or BACnet/IP)
         ▼
- Raspberry Pi node ──► MQTT  pams/freezers/<unit>   (raw temp, door)
-        │
-   ML scoring service (IsolationForest, per-unit) ──► MQTT  pams/scored/<unit>
-        │
+ Raspberry Pi node ──► MQTT  pams/freezers/<unit>   (temperature, door, + any
+        │                                             real soft-sensors it reads)
+   ML scoring service (per-unit ensemble) ──► MQTT  pams/scored/<unit>
+        │                                    (health, RUL, anomaly, channels…)
    Node-RED ──► InfluxDB (measurements: readings, ml_scores) ──► Grafana
+        │
+   Predator (Windows desktop cockpit) ──► reads MQTT + Pi gateway (:8090)
 ```
 
 The Docker stack (MQTT, Node-RED, InfluxDB, Grafana) and the Python services run as
 `systemd` units, so the whole pipeline survives reboots with no terminals open.
+
+## BACnet points PAMS reads
+
+**Always (per BMS node):**
+
+| Function            | Default object (MS/TP) | Default object (IP) | Access |
+| ------------------- | ---------------------- | ------------------- | ------ |
+| Freezer temperature | `analog-input:1`       | `analogInput:0`     | read   |
+| Door status         | `binary-input:1`       | `binaryInput:1`     | read   |
+| PAMS health score   | `analog-value:50`      | `analogValue:2`     | write  |
+
+**Optional real soft-sensors** (read only when mapped via `PAMS_EXTRA_POINTS`; each
+flows into MQTT and the ML ingests it automatically as level + rate). Recognized
+names: `evaporator_temp`, `return_air_temp`, `ambient_temp`, `condenser_temp`,
+`suction_pressure`, `discharge_pressure`, `superheat`, `compressor_current`,
+`humidity`, `setpoint`, `defrost_status`, `compressor_status`. Nothing is
+fabricated — unmapped sensors are simply absent.
+
+```bash
+# in deploy/systemd/pams.env  (MS/TP uses dashed objtypes; IP uses camelCase)
+PAMS_EXTRA_POINTS=evaporator_temp=analog-input:2,suction_pressure=analog-input:3,defrost_status=binary-input:2
+```
+
+## Machine learning
+
+Each unit gets its own ensemble — **IsolationForest** (always on), plus
+**LSTM autoencoder**, **HMM**, and **XGBoost RUL** when their dependencies are
+installed — fused into one 0–100 health score. The feature schema is **per-unit and
+adaptive**: every active sensor contributes two model inputs (its level and its
+rate of change), and the schema widens automatically the first time a new sensor
+appears (models rebuild for the new dimensionality). History is stored per unit as
+JSONL and a legacy CSV is migrated automatically.
+
+Validate locally (needs `numpy` + `scikit-learn`):
+
+```bash
+PYTHONPATH=deploy python deploy/scripts/ml_selftest.py            # temperature-only
+PYTHONPATH=deploy python deploy/scripts/ml_ensemble_selftest.py   # multi-sensor
+```
+
+## Documentation index
+
+| Doc                                      | What it covers                                         |
+| ---------------------------------------- | ------------------------------------------------------ |
+| `README.md` (this file)                  | System overview, points, ML, quick start               |
+| `predator/README.md`                     | The Windows desktop cockpit (connectivity, terminal)   |
+| `deploy/PAMS_BACnet_MSTP_Integration.md` | Commissioning sheet for the BMS engineer (points list) |
+| `deploy/PAMS_CheatSheet.txt`             | Operator quick reference                               |
+| `deploy/PAMS_Commands.txt`               | Command reference                                      |
+| In-app **Help & Docs** (Predator)        | Searchable, offline docs bundled in the app            |
 
 ## Contents (`deploy/`)
 
@@ -58,3 +110,5 @@ sudo systemctl status pams-ml
 
 - BACnet MS/TP I/O uses Steve Karg's `bacnet-stack` CLI tools (`bacrp`/`bacwp`/`bacwi`).
 - InfluxDB tokens are **not** stored in this repo — enter them in the Node-RED editor.
+- The Predator desktop app ships with a **real interactive terminal** (PowerShell +
+  `ssh admin@alpha-p`) and searchable in-app docs; see `predator/README.md`.

@@ -11,11 +11,14 @@ network — no internet required, no cloud, no telemetry.
   inferred state, anomaly/training flags, and a rolling temperature sparkline.
 - Reads the streams PAMS already publishes (`pams/scored/#`, `pams/freezers/#`),
   so **it changes nothing on the Pi**.
+- **Live gateway views** — Services, Devices, and Points fetch real status from a
+  small read-only gateway on the Pi (`:8090`); only the **Demo** button is simulated.
+- **Real terminal** — a true interactive PowerShell PTY (via `node-pty` + xterm.js)
+  built into the app. Run any command, use history/tab-completion, and
+  `ssh admin@alpha-p` to deploy or diagnose straight from the cockpit.
 - Per-desktop **Settings** (gear icon) to point at a different host/IP or ports.
-
-Planned next phases: InfluxDB history charts, a BACnet device/point explorer
-(YABE-style), config editing (ICC-style), and service control — all via a small
-read/allow-listed gateway on the Pi.
+- **Searchable, offline Help & Docs** bundled in the app (plus the `docs/` folder
+  shipped alongside the installer).
 
 ## Requirements
 

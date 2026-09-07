@@ -22,17 +22,17 @@ BACnet-capable trunk (e.g., Desigo/PXC BACnet) or a P1-to-BACnet gateway.
 
 ## 1. Our device — Raspberry Pi PAMS node (what we are adding)
 
-| Parameter                  | Value                             | Notes                                                                    |
-| -------------------------- | --------------------------------- | ------------------------------------------------------------------------ |
-| Device Object Name         | `RaspberryPi_PAMS_Node`           | can be renamed to your convention                                        |
-| **BACnet Device Instance** | ****\_** (please assign)**        | must be unique across the entire BACnet internetwork; we propose `45000` |
-| **MS/TP MAC address**      | ****\_** (please assign, 0–127)** | must be an **unused master** MAC on the freezer trunk; we propose `45`   |
-| Node type                  | **MS/TP Master**                  | issues Who-Is / ReadProperty / WriteProperty and passes token            |
-| Vendor Identifier          | `15` (pilot)                      | placeholder; can be set to an unregistered/again value if required       |
-| Max APDU Length            | `480`                             | MS/TP max is 480 octets                                                  |
-| Segmentation               | `no-segmentation`                 | requests are single-APDU                                                 |
-| Baud rate                  | **must match trunk (see §2)**     |                                                                          |
-| Physical layer             | EIA-485, 2-wire + reference       | FTDI FT232R USB→RS-485 adapter on the Pi                                 |
+| Parameter                  | Value                                 | Notes                                                                    |
+| -------------------------- | ------------------------------------- | ------------------------------------------------------------------------ |
+| Device Object Name         | `RaspberryPi_PAMS_Node`               | can be renamed to your convention                                        |
+| **BACnet Device Instance** | \***\*\_** (please assign)\*\*        | must be unique across the entire BACnet internetwork; we propose `45000` |
+| **MS/TP MAC address**      | \***\*\_** (please assign, 0–127)\*\* | must be an **unused master** MAC on the freezer trunk; we propose `45`   |
+| Node type                  | **MS/TP Master**                      | issues Who-Is / ReadProperty / WriteProperty and passes token            |
+| Vendor Identifier          | `15` (pilot)                          | placeholder; can be set to an unregistered/again value if required       |
+| Max APDU Length            | `480`                                 | MS/TP max is 480 octets                                                  |
+| Segmentation               | `no-segmentation`                     | requests are single-APDU                                                 |
+| Baud rate                  | **must match trunk (see §2)**         |                                                                          |
+| Physical layer             | EIA-485, 2-wire + reference           | FTDI FT232R USB→RS-485 adapter on the Pi                                 |
 
 **Services this node originates (client role):**
 
@@ -47,14 +47,14 @@ must simply be tolerated as an additional **master** on the token ring.
 
 ## 2. MS/TP trunk parameters we need FROM you
 
-| Parameter                                                 | Value (please provide)                                 | Our node must match              |
-| --------------------------------------------------------- | ------------------------------------------------------ | -------------------------------- |
-| Trunk **baud rate**                                       | ****\_\_\_**** (9600 / 19200 / 38400 / 76800 / 115200) | yes — must match exactly         |
-| **Max_Master** on trunk                                   | ****\_\_\_**** (commonly 127)                          | yes — set consistently           |
-| Max_Info_Frames                                           | ****\_\_\_**** (commonly 1)                            | we use 1                         |
-| Existing **master MAC addresses in use**                  | ****\_\_\_****                                         | so we pick a free MAC for the Pi |
-| BACnet **Network Number** of this trunk                   | ****\_\_\_****                                         | needed if behind a BACnet router |
-| Is there a BACnet **router/BBMD** in front of this trunk? | Y / N, address ****\_\_\_****                          | for addressing                   |
+| Parameter                                                 | Value (please provide)                                     | Our node must match              |
+| --------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------- |
+| Trunk **baud rate**                                       | \***\*\_\_\_\*\*** (9600 / 19200 / 38400 / 76800 / 115200) | yes — must match exactly         |
+| **Max_Master** on trunk                                   | \***\*\_\_\_\*\*** (commonly 127)                          | yes — set consistently           |
+| Max_Info_Frames                                           | \***\*\_\_\_\*\*** (commonly 1)                            | we use 1                         |
+| Existing **master MAC addresses in use**                  | \***\*\_\_\_\*\***                                         | so we pick a free MAC for the Pi |
+| BACnet **Network Number** of this trunk                   | \***\*\_\_\_\*\***                                         | needed if behind a BACnet router |
+| Is there a BACnet **router/BBMD** in front of this trunk? | Y / N, address \***\*\_\_\_\*\***                          | for addressing                   |
 
 ---
 
@@ -64,10 +64,10 @@ Please provide the target controller identity and the object list.
 
 **Controller identity**
 
-| Parameter                              | Value (please provide) |
-| -------------------------------------- | ---------------------- |
-| Freezer controller **Device Instance** | ****\_\_\_****         |
-| Freezer controller **MS/TP MAC**       | ****\_\_\_**** (0–127) |
+| Parameter                              | Value (please provide)     |
+| -------------------------------------- | -------------------------- |
+| Freezer controller **Device Instance** | \***\*\_\_\_\*\***         |
+| Freezer controller **MS/TP MAC**       | \***\*\_\_\_\*\*** (0–127) |
 
 **Point list** (BACnet objects the Pi will read/write)
 
@@ -86,6 +86,34 @@ Please provide the target controller identity and the object list.
   the priority/relinquish behavior you prefer).
 - If write-back is not desired for the pilot, we can run **read-only** and expose
   the score elsewhere (MQTT/Grafana) — just let us know.
+
+---
+
+## 3b. Optional additional soft-sensors (richer ML)
+
+The PAMS ML now ingests **any** of the following real points if you can expose
+them — each one materially improves failure prediction (the model uses each
+sensor's level **and** its rate of change). All are **read-only** and entirely
+optional; provide object type/instance for whichever exist on the controller.
+Nothing is fabricated — unmapped sensors are simply not read.
+
+| PAMS name            | Typical object     | Instance   | What it tells the ML                         |
+| -------------------- | ------------------ | ---------- | -------------------------------------------- |
+| `evaporator_temp`    | Analog Input       | **\_\_\_** | coil temp — icing / defrost / airflow faults |
+| `return_air_temp`    | Analog Input       | **\_\_\_** | load / door-infiltration behavior            |
+| `ambient_temp`       | Analog Input       | **\_\_\_** | environment compensation                     |
+| `condenser_temp`     | Analog Input       | **\_\_\_** | condenser fouling / high-side faults         |
+| `suction_pressure`   | Analog Input       | **\_\_\_** | refrigerant charge / compressor suction      |
+| `discharge_pressure` | Analog Input       | **\_\_\_** | high-side pressure / condenser issues        |
+| `superheat`          | Analog Input       | **\_\_\_** | metering / charge health (key signal)        |
+| `compressor_current` | Analog Input       | **\_\_\_** | compressor load / mechanical wear            |
+| `humidity`           | Analog Input       | **\_\_\_** | frost/defrost context                        |
+| `setpoint`           | Analog Value       | **\_\_\_** | control target for deviation analysis        |
+| `defrost_status`     | Binary Input/Value | **\_\_\_** | excludes defrost cycles from anomaly scoring |
+| `compressor_status`  | Binary Input/Value | **\_\_\_** | run/idle state, duty cycle                   |
+
+We configure these on our side via one environment line (no controller changes),
+e.g. `PAMS_EXTRA_POINTS=evaporator_temp=analog-input:2,suction_pressure=analog-input:3`.
 
 ---
 

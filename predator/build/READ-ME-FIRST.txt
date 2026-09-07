@@ -1,0 +1,50 @@
+PREDATOR - PAMS Cockpit
+=======================
+
+Offline desktop app to monitor and connect to the PAMS host (alpha-p).
+No internet required. Works on any Windows 10/11 PC on the same network as the Pi.
+
+WHAT'S IN THIS FOLDER
+---------------------
+  Predator Setup 0.1.0.exe   Installer (recommended) - double-click to install,
+                             creates a Start Menu + desktop shortcut.
+  Predator 0.1.0.exe         Portable - run directly, no installation.
+  docs\                      Full project documentation (system, cockpit, BACnet
+                             commissioning sheet, cheat sheets).
+
+INSTALL
+-------
+  1. Copy this folder (or just one of the .exe files) to the control PC.
+  2. Double-click "Predator Setup 0.1.0.exe" and follow the prompts
+     (or just run "Predator 0.1.0.exe" with no install).
+  3. Windows SmartScreen may warn because the app isn't code-signed -
+     click "More info" > "Run anyway".
+
+CONNECT TO alpha-p
+------------------
+  - Predator auto-finds the Pi over WiFi, Ethernet, a direct cable, or a
+    USB-to-Ethernet adapter. It tries: alpha-p.local, alpha-p, 192.168.1.112,
+    169.254.7.1 (direct-cable fallback).
+  - Open the "Connections" view to browse the network:
+      Refresh       = probe the known endpoints
+      Scan network  = search the local subnet for the Pi
+      Connect       = connect to a host
+  - The status pill (top-right) shows connected / searching.
+
+TERMINAL (real shell)
+---------------------
+  - The "Terminal" view is a real interactive PowerShell session. Run any
+    command, and use "ssh admin@alpha-p" to get a live shell on the Pi to
+    deploy or diagnose - all from inside Predator.
+
+DEMO MODE
+---------
+  - The "Demo" button (top-right) fills the UI with SIMULATED units so you can
+    explore the app with no live connection. Everything else uses real data.
+
+HELP & DOCS
+-----------
+  - The in-app "Help & Docs" view has searchable, offline documentation.
+  - The docs\ folder here contains the full written documentation set.
+
+Version 0.1.0

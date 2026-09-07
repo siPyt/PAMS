@@ -887,7 +887,7 @@ const DOCS = [
   },
   {
     title: 'Health / ML — what the numbers mean',
-    tags: 'health ml machine learning isolation forest hmm lstm rul anomaly ensemble thermal velocity',
+    tags: 'health ml machine learning isolation forest hmm lstm rul anomaly ensemble thermal velocity sensors channels features multi-sensor',
     body: `<p>Per-unit model breakdown:</p>
       <ul>
         <li><b>Combined / Ensemble health</b> — fused score across models (0–100)</li>
@@ -895,6 +895,29 @@ const DOCS = [
         <li><b>RUL</b> — remaining useful life, in days</li>
         <li><b>Thermal velocity</b> — rate of temperature change</li>
         <li><b>Inferred state</b> — nominal, defrost, warming, door-open</li>
+      </ul>
+      <p><b>Multi-sensor.</b> The ML uses a per-unit <i>adaptive</i> feature schema:
+      every real BMS sensor a unit publishes becomes two model inputs — its level
+      and its rate of change. It always has temperature + door, and automatically
+      widens to include evaporator/return/ambient/condenser temperature,
+      suction/discharge pressure, superheat, compressor current, humidity,
+      setpoint, and defrost/compressor status the moment the BMS node reports them.
+      The scored message carries <code>channels</code> and <code>n_features</code>
+      so you can see exactly what the model is watching. Nothing is fabricated —
+      sensors that aren't published are simply not in the schema.</p>`
+  },
+  {
+    title: 'Terminal — real PowerShell & SSH',
+    tags: 'terminal shell powershell ssh pty console command deploy remote alpha-p run interactive',
+    body: `<p>The <b>Terminal</b> view is a <b>real</b> interactive PowerShell
+      session (a true PTY), not a command box. You can run any command, use
+      arrow-key history and tab-completion, and launch interactive programs —
+      including <code>ssh admin@alpha-p</code> to get a live shell on the Pi to
+      deploy or diagnose.</p>
+      <ul>
+        <li>Quick-action buttons run common gateway checks/restarts.</li>
+        <li><b>Clear</b> wipes the screen; <b>Reset shell</b> restarts the session.</li>
+        <li>It runs locally on your PC, so it works even before you connect to the Pi.</li>
       </ul>`
   },
   {
@@ -990,12 +1013,17 @@ const DOCS = [
   },
   {
     title: 'Data model & MQTT topics',
-    tags: 'data mqtt topics pams freezers scored payload json fields schema unit_id',
+    tags: 'data mqtt topics pams freezers scored payload json fields schema unit_id sensors channels features',
     body: `<p>Predator subscribes to two topic trees on the broker:</p>
       <ul>
-        <li><code>pams/freezers/&lt;unit&gt;</code> — raw readings (temperature, door)</li>
-        <li><code>pams/scored/&lt;unit&gt;</code> — ML-enriched readings (health, RUL,
-          anomaly, per-model scores)</li>
+        <li><code>pams/freezers/&lt;unit&gt;</code> — raw readings: <code>temperature</code>,
+          <code>door_status</code>, plus any real BMS soft-sensors the node reads
+          (e.g. <code>evaporator_temp</code>, <code>suction_pressure</code>,
+          <code>compressor_current</code>).</li>
+        <li><code>pams/scored/&lt;unit&gt;</code> — ML-enriched readings: health, RUL,
+          anomaly, per-model scores, plus <code>channels</code> and
+          <code>n_features</code> (the exact sensor set the model used) and the
+          echoed raw sensor values.</li>
       </ul>
       <p>Each message is JSON keyed by <code>unit_id</code>. Predator merges both
       streams per unit and keeps a rolling in-memory history for sparklines and
@@ -1049,7 +1077,7 @@ const DOCS = [
   },
   {
     title: 'Glossary',
-    tags: 'glossary terms definitions bacnet mqtt influxdb rul mdns link-local anomaly hmm lstm isolation forest ensemble',
+    tags: 'glossary terms definitions bacnet mqtt influxdb rul mdns link-local anomaly hmm lstm isolation forest ensemble pty soft-sensor superheat evaporator suction discharge pressure',
     body: `<ul>
         <li><b>BACnet</b> — building-automation protocol for freezer/BMS points.</li>
         <li><b>MQTT</b> — lightweight publish/subscribe messaging; the live feed.</li>
@@ -1059,6 +1087,10 @@ const DOCS = [
         <li><b>Link-local (169.254.x.x)</b> — auto address used on a direct cable.</li>
         <li><b>IsolationForest / HMM / LSTM</b> — ML models fused into the health score.</li>
         <li><b>Anomaly</b> — a reading the models flag as abnormal.</li>
+        <li><b>PTY</b> — pseudo-terminal; what makes the Terminal a real shell.</li>
+        <li><b>Soft-sensor</b> — a BACnet point value (temp, pressure, current…) the ML ingests.</li>
+        <li><b>Superheat</b> — refrigerant temp above its boiling point; a key refrigeration health signal.</li>
+        <li><b>Channel / feature</b> — one sensor stream; each contributes level + rate to the model.</li>
       </ul>`
   }
 ];
