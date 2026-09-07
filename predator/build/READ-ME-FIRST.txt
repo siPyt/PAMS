@@ -36,6 +36,7 @@ TERMINAL (real shell)
   - The "Terminal" view is a real interactive PowerShell session. Run any
     command, and use "ssh admin@alpha-p" to get a live shell on the Pi to
     deploy or diagnose - all from inside Predator.
+  - Copy = select text + Ctrl+C (or right-click). Paste = Ctrl+V (or right-click).
 
 POINT MAPPING (Points view)
 ---------------------------

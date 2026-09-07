@@ -938,6 +938,9 @@ const DOCS = [
       deploy or diagnose.</p>
       <ul>
         <li>Quick-action buttons run common gateway checks/restarts.</li>
+        <li><b>Copy/paste:</b> select + <b>Ctrl+C</b> (or right-click) to copy;
+          <b>Ctrl+V</b> (or right-click) to paste. With no selection, Ctrl+C sends
+          the interrupt like a normal shell.</li>
         <li><b>Clear</b> wipes the screen; <b>Reset shell</b> restarts the session.</li>
         <li>It runs locally on your PC, so it works even before you connect to the Pi.</li>
       </ul>`
