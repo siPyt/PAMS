@@ -750,6 +750,22 @@ body {
 .scan-tbl .scan-dev {
   margin: 2px 0;
 }
+.xport-lbl {
+  font-size: 12px;
+  color: var(--text-mut);
+}
+.xport-sel {
+  background: #05080c;
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  outline: none;
+}
+.xport-sel:focus {
+  border-color: var(--accent);
+}
 .map-core {
   font-size: 9px;
   text-transform: uppercase;

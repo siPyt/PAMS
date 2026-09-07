@@ -1450,7 +1450,10 @@ async function scanDevice() {
   }
   setScanStatus('Scanning device ' + dev + '…');
   const applyBtn = $('#scanApply');
-  const r = await window.predator.gatewayGet('/api/scan?device=' + encodeURIComponent(dev));
+  const r = await window.predator.gatewayGet(
+    '/api/scan?device=' + encodeURIComponent(dev) + '&datalink=' + currentDatalink(),
+    60000
+  );
   if (r && r.ok && r.data && Array.isArray(r.data.objects)) {
     scanObjects = r.data.objects.map((o) => ({ ...o, _pick: true, _chan: o.suggest || safeName(o.name) }));
     renderScanResults();
@@ -1480,6 +1483,16 @@ function applyScanSelection() {
 }
 
 // ----- Bus discovery (auto baud sweep + Who-Is) ----------------------------
+function currentDatalink() {
+  const sel = $('#xport');
+  return sel && sel.value === 'bip' ? 'bip' : 'mstp';
+}
+
+function updateBusBtnLabel() {
+  const btn = $('#busScanBtn');
+  if (btn) btn.textContent = currentDatalink() === 'bip' ? 'Find devices (Who-Is)' : 'Find bus (auto-baud + Who-Is)';
+}
+
 function setBusStatus(text, kind) {
   const el = $('#busScanStatus');
   if (!el) return;
@@ -1515,7 +1528,45 @@ function renderBusResults(data) {
   );
 }
 
+function renderIpDevices(devs) {
+  const box = $('#busScanResults');
+  if (!box) return;
+  if (!devs.length) {
+    box.innerHTML = '';
+    return;
+  }
+  box.innerHTML = `<table class="tbl scan-tbl">
+    <thead><tr><th>Device</th><th>Scan</th></tr></thead>
+    <tbody>${devs
+      .map(
+        (d) => `<tr class="bus-hit"><td class="mono">${d.instance}</td>
+        <td><button class="btn ghost sm scan-dev" data-dev="${d.instance}">Scan ${d.instance}</button></td></tr>`
+      )
+      .join('')}</tbody></table>`;
+  box.querySelectorAll('.scan-dev').forEach((b) =>
+    b.addEventListener('click', () => {
+      const inp = $('#scanDevice');
+      if (inp) inp.value = b.dataset.dev;
+      scanDevice();
+    })
+  );
+}
+
 async function findBus() {
+  if (currentDatalink() === 'bip') {
+    setBusStatus('Broadcasting Who-Is on the LAN…');
+    const r = await window.predator.gatewayGet('/api/ip-scan', 30000);
+    if (r && r.ok && r.data && Array.isArray(r.data.devices)) {
+      renderIpDevices(r.data.devices);
+      setBusStatus(
+        r.data.devices.length ? `Found ${r.data.devices.length} BACnet/IP device(s) — click Scan` : (r.data.note || 'No IP devices answered'),
+        r.data.devices.length ? 'ok' : 'warn'
+      );
+    } else {
+      setBusStatus('IP scan failed: ' + ((r && r.data && r.data.note) || (r && r.error) || 'gateway offline'), 'warn');
+    }
+    return;
+  }
   setBusStatus('Sweeping bauds & sending Who-Is… (up to ~60s)');
   const r = await window.predator.gatewayGet('/api/bus-scan', 90000);
   if (r && r.ok && r.data && Array.isArray(r.data.results)) {
@@ -1672,6 +1723,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (scanBtn) scanBtn.addEventListener('click', scanDevice);
   const busScanBtn = $('#busScanBtn');
   if (busScanBtn) busScanBtn.addEventListener('click', findBus);
+  const xport = $('#xport');
+  if (xport) xport.addEventListener('change', updateBusBtnLabel);
   const scanApplyBtn = $('#scanApply');
   if (scanApplyBtn) scanApplyBtn.addEventListener('click', applyScanSelection);
   const scanDeviceInput = $('#scanDevice');

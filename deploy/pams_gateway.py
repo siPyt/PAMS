@@ -9,6 +9,7 @@ Exposes REAL data that Predator's Services / Devices / Points views consume:
   GET  /api/points?device=<id>  -> best-effort BACnet object reads for a device
   GET  /api/scan?device=<id>    -> YABE-style object-list + names + auto-suggest
   GET  /api/bus-scan            -> auto-find MS/TP baud (Who-Is sweep) + devices
+  GET  /api/ip-scan             -> BACnet/IP Who-Is (LAN broadcast) + devices
   GET  /api/points-map          -> current BMS soft-sensor object mapping
   POST /api/points-map          -> save the mapping (~/pams_points.json)
 
@@ -83,20 +84,37 @@ def mstp_cfg():
 
 
 def mstp_env(baud=None):
-    """Environment that selects the MS/TP datalink for bacnet-stack tools."""
+    return bacnet_env("mstp", baud)
+
+
+def bacnet_env(datalink="mstp", baud=None):
+    """Environment that selects the datalink for bacnet-stack tools.
+    datalink='mstp' (RS-485 trunk) or 'bip' (BACnet/IP over the LAN)."""
     cfg = mstp_cfg()
-    s = cfg["serial"]
     env = os.environ.copy()
-    env.update({
-        "BACNET_DATALINK": "mstp",
-        "BACNET_IFACE": s["iface"],
-        "BACNET_MSTP_IFACE": s["iface"],
-        "BACNET_MSTP_BAUD": str(baud or s["baud"]),
-        "BACNET_MSTP_MAC": s["our_mac"],
-        "BACNET_MAX_MASTER": s["max_master"],
-        "BACNET_MAX_INFO_FRAMES": s["max_info_frames"],
-        "BACNET_APDU_TIMEOUT": s["apdu_timeout_ms"],
-    })
+    env["BACNET_APDU_TIMEOUT"] = cfg["serial"]["apdu_timeout_ms"]
+    if datalink == "bip":
+        env["BACNET_DATALINK"] = "bip"
+        iface = os.environ.get("PAMS_BIP_IFACE", "")
+        if not iface and cfg.has_section("bip"):
+            iface = cfg["bip"].get("iface", "")
+        if iface:
+            env["BACNET_IFACE"] = iface
+        port = os.environ.get("PAMS_BIP_PORT", "")
+        if not port and cfg.has_section("bip"):
+            port = cfg["bip"].get("port", "")
+        env["BACNET_IP_PORT"] = port or "47808"
+    else:
+        s = cfg["serial"]
+        env.update({
+            "BACNET_DATALINK": "mstp",
+            "BACNET_IFACE": s["iface"],
+            "BACNET_MSTP_IFACE": s["iface"],
+            "BACNET_MSTP_BAUD": str(baud or s["baud"]),
+            "BACNET_MSTP_MAC": s["our_mac"],
+            "BACNET_MAX_MASTER": s["max_master"],
+            "BACNET_MAX_INFO_FRAMES": s["max_info_frames"],
+        })
     return env
 
 
@@ -183,19 +201,32 @@ def get_services():
     return {"services": out, "ts": time.time()}
 
 
-def get_devices():
+def get_devices(datalink="mstp"):
     tool = os.path.join(BACNET_BIN, "bacwi")
     if not os.path.exists(tool):
         return {"devices": [], "note": "bacnet-stack tools not installed", "ts": time.time()}
-    rc, so, se = run([tool], timeout=12, env=mstp_env())
+    rc, so, se = run([tool], timeout=12, env=bacnet_env(datalink))
     devices = [{"instance": i} for i in _parse_devices(so)]
     note = "" if devices else "no BACnet devices responded (check baud / wiring)"
     if rc == 124:
         note = "discovery timed out"
-    return {"devices": devices, "baud": mstp_cfg()["serial"]["baud"], "note": note, "ts": time.time()}
+    return {"devices": devices, "datalink": datalink, "note": note, "ts": time.time()}
 
 
-def get_points(device):
+def get_ip_scan():
+    """Who-Is over BACnet/IP (broadcast on the LAN) -> devices. No baud needed."""
+    tool = os.path.join(BACNET_BIN, "bacwi")
+    if not os.path.exists(tool):
+        return {"devices": [], "note": "bacnet-stack tools not installed", "ts": time.time()}
+    rc, so, se = run([tool], timeout=12, env=bacnet_env("bip"))
+    devices = [{"instance": i} for i in _parse_devices(so)]
+    note = "" if devices else "no BACnet/IP devices answered the Who-Is broadcast"
+    if rc == 124:
+        note = "discovery timed out"
+    return {"devices": devices, "datalink": "bip", "note": note, "ts": time.time()}
+
+
+def get_points(device, datalink="mstp"):
     tool = os.path.join(BACNET_BIN, "bacrp")
     if not os.path.exists(tool):
         return {"points": [], "note": "bacnet-stack tools not installed", "ts": time.time()}
@@ -210,7 +241,7 @@ def get_points(device):
     points = []
     type_map = {"analog-input": 0, "binary-input": 3, "analog-value": 2}
     for tname, inst, label in probes:
-        rc, so, _ = run([tool, str(device), str(type_map[tname]), str(inst), "85"], timeout=6, env=mstp_env())
+        rc, so, _ = run([tool, str(device), str(type_map[tname]), str(inst), "85"], timeout=6, env=bacnet_env(datalink))
         points.append(
             {"object": label, "value": so.strip() if rc == 0 and so else None, "ok": rc == 0}
         )
@@ -272,7 +303,7 @@ def suggest_channel(object_name):
     return s or "point"
 
 
-def get_scan(device, limit=250):
+def get_scan(device, limit=250, datalink="mstp"):
     """YABE-style: read a device's object-list, then each object's name + value.
     Auto-suggests a PAMS channel per object. Best-effort; needs live hardware."""
     tool = os.path.join(BACNET_BIN, "bacrp")
@@ -281,7 +312,7 @@ def get_scan(device, limit=250):
     if not device:
         return {"objects": [], "note": "no device specified", "ts": time.time()}
     # Property 76 = object-list on the device object.
-    rc, so, se = run([tool, str(device), "device", str(device), "76"], timeout=20, env=mstp_env())
+    rc, so, se = run([tool, str(device), "device", str(device), "76"], timeout=20, env=bacnet_env(datalink))
     if rc != 0 or not so:
         note = "scan timed out" if rc == 124 else (se or "no object-list returned (no hardware?)")
         return {"objects": [], "device": device, "note": note, "ts": time.time()}
@@ -295,11 +326,11 @@ def get_scan(device, limit=250):
         seen.append(key)
         if len(objects) >= limit:
             break
-        _, nm, _ = run([tool, str(device), tname, str(inst), "77"], timeout=6, env=mstp_env())   # object-name
-        _, pv, _ = run([tool, str(device), tname, str(inst), "85"], timeout=6, env=mstp_env())   # present-value
+        _, nm, _ = run([tool, str(device), tname, str(inst), "77"], timeout=6, env=bacnet_env(datalink))   # object-name
+        _, pv, _ = run([tool, str(device), tname, str(inst), "85"], timeout=6, env=bacnet_env(datalink))   # present-value
         units = None
         if tname.startswith("analog"):
-            _, un, _ = run([tool, str(device), tname, str(inst), "117"], timeout=6, env=mstp_env())  # units
+            _, un, _ = run([tool, str(device), tname, str(inst), "117"], timeout=6, env=bacnet_env(datalink))  # units
             units = (un or "").strip().strip('"') or None
         name = (nm or "").strip().strip('"') or f"{OBJ_TYPES[tname]}{inst}"
         objects.append({
@@ -344,15 +375,20 @@ class Handler(BaseHTTPRequestHandler):
             elif u.path == "/api/services":
                 self._send(200, cached("services", 4, get_services))
             elif u.path == "/api/devices":
-                self._send(200, cached("devices", 30, get_devices))
+                dl = (q.get("datalink") or ["mstp"])[0]
+                self._send(200, cached(f"devices:{dl}", 30, lambda: get_devices(dl)))
             elif u.path == "/api/points":
                 dev = (q.get("device") or [""])[0]
-                self._send(200, get_points(dev))
+                dl = (q.get("datalink") or ["mstp"])[0]
+                self._send(200, get_points(dev, dl))
             elif u.path == "/api/scan":
                 dev = (q.get("device") or [""])[0]
-                self._send(200, cached(f"scan:{dev}", 20, lambda: get_scan(dev)))
+                dl = (q.get("datalink") or ["mstp"])[0]
+                self._send(200, cached(f"scan:{dl}:{dev}", 20, lambda: get_scan(dev, datalink=dl)))
             elif u.path == "/api/bus-scan":
                 self._send(200, cached("bus-scan", 15, get_bus_scan))
+            elif u.path == "/api/ip-scan":
+                self._send(200, cached("ip-scan", 15, get_ip_scan))
             elif u.path == "/api/points-map":
                 self._send(200, get_points_map())
             else:
