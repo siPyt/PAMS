@@ -64,6 +64,9 @@ EXTRA_SENSOR_ORDER = [
 ]
 CHANNEL_ORDER = CORE_CHANNELS + EXTRA_SENSOR_ORDER
 
+# Payload keys that are never sensor channels (meta / derived / the raw score).
+META_KEYS = {"ts", "unit_id", "health_score", "channels", "models", "n_features", "n_points"}
+
 ACTIVE_MODELS = ["isolation_forest"]
 if TF_AVAILABLE:
     ACTIVE_MODELS.append("lstm_autoencoder")
@@ -121,14 +124,26 @@ class UnitEnsemble:
         self.points_since_fit = 0
 
     def _update_channels(self, reading):
-        """Activate any newly-seen channels; returns True if the schema changed."""
+        """Activate any newly-seen numeric channel; returns True if schema changed.
+
+        Any numeric field the BMS publishes becomes a channel (known names sort
+        first in canonical order, discovered ones keep first-seen order), so a
+        chiller with dozens of real objects is ingested with its real names.
+        """
         changed = False
-        for ch in CHANNEL_ORDER:
-            if ch not in self.channels and ch in reading and reading[ch] is not None:
-                self.channels.append(ch)
-                changed = True
+        for ch, v in reading.items():
+            if ch in META_KEYS or ch in self.channels or v is None:
+                continue
+            try:
+                float(v)
+            except (TypeError, ValueError):
+                continue
+            self.channels.append(ch)
+            changed = True
         if changed:
-            self.channels.sort(key=lambda c: CHANNEL_ORDER.index(c) if c in CHANNEL_ORDER else 999)
+            known = [c for c in CHANNEL_ORDER if c in self.channels]
+            extra = [c for c in self.channels if c not in CHANNEL_ORDER]
+            self.channels = known + extra
         return changed
 
     def _vector(self, r, prev):
@@ -340,9 +355,9 @@ class PamsML:
         self.units = {}
 
     def score(self, unit_id, temperature, door_status=0, ts=None, sensors=None):
-        """Score a reading. `sensors` is an optional dict of extra REAL BMS
-        soft-sensor values (keys from EXTRA_SENSOR_ORDER); absent ones are
-        simply not ingested - nothing is fabricated."""
+        """Score a reading. `sensors` is an optional dict of extra REAL sensor
+        values (any numeric name the BMS mapped); absent ones are simply not
+        ingested - nothing is fabricated."""
         um = self.units.get(unit_id)
         if um is None:
             um = UnitEnsemble(unit_id)
@@ -355,9 +370,10 @@ class PamsML:
         }
         if sensors:
             for k, v in sensors.items():
-                if k in EXTRA_SENSOR_ORDER and v is not None:
-                    try:
-                        reading[k] = float(v)
-                    except (TypeError, ValueError):
-                        continue
+                if k in META_KEYS or v is None:
+                    continue
+                try:
+                    reading[k] = float(v)
+                except (TypeError, ValueError):
+                    continue
         return um.process(reading)

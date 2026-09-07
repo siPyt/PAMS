@@ -41,10 +41,12 @@ simply absent, and mapped points that don't actually read are skipped.
 
 Map them **either way**:
 
-- **Predator UI (recommended):** the **Points** view has a mapping editor —
-  enter each object by hand or **Import CSV** from Excel, then **Save to Pi**. It
-  writes `~/pams_points.json` live through the gateway and the BMS node picks it up
-  automatically (no restart).
+- **Predator UI (recommended):** the **Points** view can **auto-discover** a
+  device's objects (YABE-style scan on the Pi), suggest a channel name for each,
+  and let you map them by hand or **Import CSV** from Excel, then **Save to Pi**.
+  It writes `~/pams_points.json` live through the gateway and the BMS node picks
+  it up automatically (no restart). It can also **Export ICC/FLN CSV** (the ICC
+  Mirus mapping used to bridge points onto the Siemens FLN).
 - **Env file:** set `PAMS_EXTRA_POINTS` in `deploy/systemd/pams.env`.
 
 ```bash
@@ -52,9 +54,13 @@ Map them **either way**:
 PAMS_EXTRA_POINTS=evaporator_temp=analog-input:2,suction_pressure=analog-input:3,defrost_status=binary-input:2
 ```
 
-The whole chain is **adaptive**: if 4 sensors report, the ML scores on 4 and
-InfluxDB stores 4; if 11 report, 11 — automatically, with no config beyond the
-mapping.
+Channel names are **arbitrary** — the ML ingests any real object name (a chiller's
+`c1_superheat`, `cond1_ref_pressure`, … not just the freezer names above). The
+whole chain is **adaptive**: if 4 points report, the ML scores on 4 and InfluxDB
+stores 4; if 40 report, 40 — automatically, with no config beyond the mapping.
+
+Gateway endpoints backing this: `GET /api/scan?device=<id>` (object-list + names +
+auto-suggest), `GET/POST /api/points-map` (read/save the mapping).
 
 ## Machine learning
 

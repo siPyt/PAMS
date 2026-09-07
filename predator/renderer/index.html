@@ -167,22 +167,53 @@
 
           <div class="panel">
             <div class="panel-head">
+              <h2>Auto-discover from a BACnet device</h2>
+              <p class="view-sub">
+                Reads the device's object list (YABE-style) and suggests a
+                channel name for each point. Tick the ones you want and apply
+                them to the map below — review before saving. Needs the Pi on
+                the trunk.
+              </p>
+            </div>
+            <div class="map-actions">
+              <input
+                id="scanDevice"
+                class="scan-device"
+                type="text"
+                inputmode="numeric"
+                spellcheck="false"
+                placeholder="Device instance (e.g. 9050)"
+              />
+              <button id="scanBtn" class="btn primary sm">Scan device</button>
+              <button id="scanApply" class="btn ghost sm" disabled>
+                Apply selected
+              </button>
+              <span class="spacer"></span>
+              <span id="scanStatus" class="map-status"></span>
+            </div>
+            <div id="scanResults" class="scan-results"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
               <h2>Sensor point mapping</h2>
               <p class="view-sub">
-                Enter each sensor's BACnet object as
-                <code>objtype:instance</code> (e.g.
+                Each row maps a PAMS channel to a BACnet object
+                (<code>objtype:instance</code>, e.g.
                 <code>analog-input:2</code>). Only mapped points that actually
-                read are used — nothing is fabricated. Saves live to the Pi; the
-                BMS node picks up changes automatically.
+                read are used — nothing is fabricated; the ML and InfluxDB adapt
+                to exactly what reports. Saves live to the Pi.
               </p>
             </div>
             <div class="map-actions">
               <button id="mapReload" class="btn ghost sm">Reload</button>
+              <button id="mapAdd" class="btn ghost sm">+ Add point</button>
               <button id="mapImport" class="btn ghost sm">Import CSV…</button>
               <button id="mapExport" class="btn ghost sm">Export CSV</button>
-              <button id="mapTemplate" class="btn ghost sm">
-                Download template
+              <button id="mapExportIcc" class="btn ghost sm">
+                Export ICC/FLN CSV
               </button>
+              <button id="mapTemplate" class="btn ghost sm">Template</button>
               <span class="spacer"></span>
               <span id="mapStatus" class="map-status"></span>
               <button id="mapSave" class="btn primary sm">Save to Pi</button>

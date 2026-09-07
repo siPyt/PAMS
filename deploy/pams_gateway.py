@@ -7,6 +7,7 @@ Exposes REAL data that Predator's Services / Devices / Points views consume:
   GET  /api/services            -> docker containers + systemd unit states
   GET  /api/devices             -> best-effort BACnet Who-Is discovery
   GET  /api/points?device=<id>  -> best-effort BACnet object reads for a device
+  GET  /api/scan?device=<id>    -> YABE-style object-list + names + auto-suggest
   GET  /api/points-map          -> current BMS soft-sensor object mapping
   POST /api/points-map          -> save the mapping (~/pams_points.json)
 
@@ -162,6 +163,65 @@ def save_points_map(data):
     return {"ok": True, "mapping": clean, "count": len(clean), "file": POINTS_FILE, "ts": time.time()}
 
 
+# BACnet object types we scan, mapped to short (ICC-style) codes.
+OBJ_TYPES = {
+    "analog-input": "AI", "analog-output": "AO", "analog-value": "AV",
+    "binary-input": "BI", "binary-output": "BO", "binary-value": "BV",
+    "multi-state-input": "MSI", "multi-state-output": "MSO", "multi-state-value": "MSV",
+}
+_OBJLIST_RE = re.compile(
+    r"(" + "|".join(OBJ_TYPES) + r")[\s,:()]+(\d+)"
+)
+
+
+def suggest_channel(object_name):
+    """Turn a BACnet object name into a safe snake_case channel key (real name,
+    nothing invented). e.g. 'C1SuctionTemperature' -> 'c1_suction_temperature'."""
+    s = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", object_name or "")
+    s = re.sub(r"[^0-9A-Za-z]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_").lower()
+    return s or "point"
+
+
+def get_scan(device, limit=250):
+    """YABE-style: read a device's object-list, then each object's name + value.
+    Auto-suggests a PAMS channel per object. Best-effort; needs live hardware."""
+    tool = os.path.join(BACNET_BIN, "bacrp")
+    if not os.path.exists(tool):
+        return {"objects": [], "note": "bacnet-stack tools not installed", "ts": time.time()}
+    if not device:
+        return {"objects": [], "note": "no device specified", "ts": time.time()}
+    # Property 76 = object-list on the device object.
+    rc, so, se = run([tool, str(device), "device", str(device), "76"], timeout=20)
+    if rc != 0 or not so:
+        note = "scan timed out" if rc == 124 else (se or "no object-list returned (no hardware?)")
+        return {"objects": [], "device": device, "note": note, "ts": time.time()}
+    seen = []
+    objects = []
+    for m in _OBJLIST_RE.finditer(so):
+        tname, inst = m.group(1), int(m.group(2))
+        key = (tname, inst)
+        if key in seen:
+            continue
+        seen.append(key)
+        if len(objects) >= limit:
+            break
+        _, nm, _ = run([tool, str(device), tname, str(inst), "77"], timeout=6)   # object-name
+        _, pv, _ = run([tool, str(device), tname, str(inst), "85"], timeout=6)   # present-value
+        name = (nm or "").strip().strip('"') or f"{OBJ_TYPES[tname]}{inst}"
+        objects.append({
+            "type": tname,
+            "short": OBJ_TYPES[tname],
+            "instance": inst,
+            "object": f"{tname}:{inst}",
+            "name": name,
+            "value": (pv or "").strip() or None,
+            "suggest": suggest_channel(name),
+        })
+    note = "" if objects else "object-list parsed but no readable objects"
+    return {"objects": objects, "device": device, "count": len(objects), "note": note, "ts": time.time()}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, obj):
         body = json.dumps(obj).encode("utf-8")
@@ -194,6 +254,9 @@ class Handler(BaseHTTPRequestHandler):
             elif u.path == "/api/points":
                 dev = (q.get("device") or [""])[0]
                 self._send(200, get_points(dev))
+            elif u.path == "/api/scan":
+                dev = (q.get("device") or [""])[0]
+                self._send(200, cached(f"scan:{dev}", 20, lambda: get_scan(dev)))
             elif u.path == "/api/points-map":
                 self._send(200, get_points_map())
             else:

@@ -21,7 +21,7 @@ import json
 
 import paho.mqtt.client as mqtt
 
-from pams_ml import PamsML, ACTIVE_MODELS, EXTRA_SENSOR_ORDER
+from pams_ml import PamsML, ACTIVE_MODELS
 
 
 MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
@@ -29,7 +29,9 @@ MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 IN_TOPIC = os.environ.get("IN_TOPIC", "pams/freezers/+")
 OUT_PREFIX = os.environ.get("OUT_PREFIX", "pams/scored")
 
-SENSOR_KEYS = set(EXTRA_SENSOR_ORDER)
+# Fields that are meta or already handled explicitly - everything else numeric is
+# treated as a real sensor channel and forwarded to the ML as-is.
+NON_SENSOR = {"unit_id", "temperature", "door_status", "health_score", "ts"}
 engine = PamsML()
 
 
@@ -55,8 +57,15 @@ def on_message(client, userdata, msg):
     ts = data.get("ts")
     door = int(data.get("door_status", 0))
 
-    # Any REAL extra BMS soft-sensors the node published flow straight into the ML.
-    sensors = {k: data[k] for k in data if k in SENSOR_KEYS and data[k] is not None}
+    # Any REAL extra sensor the node published (any numeric name) flows into the ML.
+    sensors = {}
+    for k, v in data.items():
+        if k in NON_SENSOR or v is None:
+            continue
+        try:
+            sensors[k] = float(v)
+        except (TypeError, ValueError):
+            continue
 
     ml = engine.score(unit_id, float(temp), door_status=door, ts=ts, sensors=sensors)
 

@@ -880,21 +880,25 @@ const DOCS = [
       data; live discovery/read activates with the Pi-side gateway.</p>`
   },
   {
-    title: 'Points — sensor mapping (manual / CSV)',
-    tags: 'points icc configurator read write present value priority table mapping csv excel import export bacnet object instance sensors adaptive',
-    body: `<p>The <b>Points</b> view maps each PAMS sensor to a BACnet object
-      (<code>objtype:instance</code>, e.g. <code>analog-input:2</code>). Enter them
-      by hand, or <b>Import CSV</b> / <b>Download template</b> to bulk-load from
-      Excel; <b>Export CSV</b> saves the current map.</p>
+    title: 'Points — auto-discover & sensor mapping',
+    tags: 'points icc configurator read write present value mapping csv excel import export bacnet object instance sensors adaptive discover yabe scan device fln siemens chiller',
+    body: `<p>The <b>Points</b> view discovers and maps a device's BACnet objects to
+      PAMS channels.</p>
       <ul>
+        <li><b>Auto-discover</b> — enter a device instance and <b>Scan device</b>.
+          Predator reads the object list (YABE-style) and suggests a channel name
+          for each point; tick the ones you want and <b>Apply selected</b>.</li>
+        <li><b>Manual / CSV</b> — add rows by hand, or <b>Import CSV</b> from Excel
+          (accepts the ICC/FLN column layout too).</li>
         <li><b>Save to Pi</b> writes the map live via the gateway — the BMS node
           picks it up automatically, no restart.</li>
-        <li>Map all 14 if you like; only points that actually <b>read</b> are used.
-          Nothing is fabricated.</li>
-        <li>The ML and InfluxDB are <b>adaptive</b>: if 4 sensors report, 4 are
-          scored and stored; if 11, then 11 — automatically.</li>
+        <li><b>Export ICC/FLN CSV</b> — produces the ICC Mirus mapping (device,
+          object, FLN type, point number, database address) to bridge onto the
+          Siemens FLN.</li>
       </ul>
-      <p>Below the editor, live present-values appear for any discovered devices.</p>`
+      <p>Channels are <b>arbitrary</b> — a chiller's dozens of real object names all
+      flow through. Only points that actually read are used; the ML and InfluxDB
+      adapt to exactly what reports. Nothing is fabricated.</p>`
   },
   {
     title: 'Trends',
@@ -1156,18 +1160,28 @@ function renderHelp() {
 }
 
 // ---------------------------------------------------------------------------
-// Point mapping editor (BACnet object -> PAMS sensor), manual + CSV
+// Point mapping editor: auto-discover + manual + CSV. Channels are arbitrary
+// (any real BACnet object name), so a chiller's dozens of points all flow in.
 // ---------------------------------------------------------------------------
 const CORE_POINTS = ['temperature', 'door_status'];
-const EXTRA_POINTS = [
+const KNOWN_EXTRAS = [
   'evaporator_temp', 'return_air_temp', 'ambient_temp', 'condenser_temp',
   'suction_pressure', 'discharge_pressure', 'superheat',
   'compressor_current', 'humidity', 'setpoint',
   'defrost_status', 'compressor_status'
 ];
-const ALL_POINTS = [...CORE_POINTS, ...EXTRA_POINTS];
 const OBJ_RE = /^[A-Za-z][A-Za-z0-9-]*:\d+$/;
-let pointMap = {}; // name -> "objtype:instance"
+const OBJ_SHORT = {
+  'analog-input': 'AI', 'analog-output': 'AO', 'analog-value': 'AV',
+  'binary-input': 'BI', 'binary-output': 'BO', 'binary-value': 'BV',
+  'multi-state-input': 'MSI', 'multi-state-output': 'MSO', 'multi-state-value': 'MSV'
+};
+let mapEntries = []; // [{ name, object, core }]
+let scanObjects = []; // last device scan results
+
+function safeName(s) {
+  return String(s).trim().replace(/[^0-9A-Za-z_]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').toLowerCase();
+}
 
 function setMapStatus(text, kind) {
   const el = $('#mapStatus');
@@ -1176,52 +1190,92 @@ function setMapStatus(text, kind) {
   el.className = 'map-status' + (kind ? ' ' + kind : '');
 }
 
+function setScanStatus(text, kind) {
+  const el = $('#scanStatus');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'map-status' + (kind ? ' ' + kind : '');
+}
+
 function renderMapTable() {
   const box = $('#mapTable');
   if (!box) return;
-  const row = (name) => {
-    const core = CORE_POINTS.includes(name);
-    const val = pointMap[name] || '';
-    const bad = val && !OBJ_RE.test(val) ? ' invalid' : '';
-    return `<div class="map-row${core ? ' core' : ''}">
-      <label class="map-name">${name}${core ? '<span class="map-core">core</span>' : ''}</label>
-      <input class="map-input${bad}" data-point="${name}" value="${escapeHtml(val)}"
-        spellcheck="false" placeholder="e.g. ${core ? (name === 'door_status' ? 'binary-input:1' : 'analog-input:1') : 'analog-input:2'}" />
-    </div>`;
-  };
-  box.innerHTML =
-    `<div class="map-group-lbl">Core points (always read)</div>` +
-    CORE_POINTS.map(row).join('') +
-    `<div class="map-group-lbl">Optional soft-sensors (used only when they read)</div>` +
-    EXTRA_POINTS.map(row).join('');
+  box.innerHTML = mapEntries
+    .map((e, i) => {
+      const bad = e.object && !OBJ_RE.test(e.object) ? ' invalid' : '';
+      return `<div class="map-row" data-idx="${i}">
+        <input class="map-nm" data-idx="${i}" value="${escapeHtml(e.name)}" ${e.core ? 'readonly' : ''}
+          spellcheck="false" placeholder="channel name" />
+        <input class="map-input${bad}" data-idx="${i}" value="${escapeHtml(e.object)}"
+          spellcheck="false" placeholder="${e.core && e.name === 'door_status' ? 'binary-input:1' : 'analog-input:2'}" />
+        ${e.core ? '<span class="map-core">core</span>' : `<button class="map-del" data-idx="${i}" title="Remove">×</button>`}
+      </div>`;
+    })
+    .join('');
+  box.querySelectorAll('.map-nm').forEach((inp) =>
+    inp.addEventListener('input', () => {
+      mapEntries[+inp.dataset.idx].name = inp.value;
+    })
+  );
   box.querySelectorAll('.map-input').forEach((inp) =>
     inp.addEventListener('input', () => {
       const v = inp.value.trim();
-      pointMap[inp.dataset.point] = v;
+      mapEntries[+inp.dataset.idx].object = v;
       inp.classList.toggle('invalid', !!v && !OBJ_RE.test(v));
+    })
+  );
+  box.querySelectorAll('.map-del').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      mapEntries.splice(+btn.dataset.idx, 1);
+      renderMapTable();
     })
   );
 }
 
+function entriesFromMap(map) {
+  const out = CORE_POINTS.map((name) => ({ name, object: map[name] || '', core: true }));
+  const seen = new Set(CORE_POINTS);
+  for (const name of KNOWN_EXTRAS) {
+    out.push({ name, object: map[name] || '', core: false });
+    seen.add(name);
+  }
+  for (const name of Object.keys(map)) {
+    if (!seen.has(name)) {
+      out.push({ name, object: map[name], core: false });
+      seen.add(name);
+    }
+  }
+  return out;
+}
+
+function upsertEntry(name, object) {
+  const key = safeName(name);
+  const existing = mapEntries.find((e) => e.name === key);
+  if (existing) existing.object = object;
+  else mapEntries.push({ name: key, object, core: false });
+}
+
 function collectMap() {
   const out = {};
-  for (const name of ALL_POINTS) {
-    const v = (pointMap[name] || '').trim();
-    if (v) out[name] = v;
+  for (const e of mapEntries) {
+    const name = safeName(e.name);
+    const v = (e.object || '').trim();
+    if (name && v) out[name] = v;
   }
   return out;
 }
 
 async function loadPointMap() {
-  renderMapTable();
   setMapStatus('Loading…');
   const r = await window.predator.gatewayGet('/api/points-map');
   if (r && r.ok && r.data && r.data.mapping) {
-    pointMap = { ...r.data.mapping };
+    mapEntries = entriesFromMap(r.data.mapping);
     renderMapTable();
-    const n = Object.keys(pointMap).length;
+    const n = Object.keys(r.data.mapping).length;
     setMapStatus(n ? `${n} points mapped` : 'No points mapped yet', n ? 'ok' : '');
   } else {
+    if (!mapEntries.length) mapEntries = entriesFromMap({});
+    renderMapTable();
     setMapStatus('Gateway offline — you can still edit and export', 'warn');
   }
 }
@@ -1244,24 +1298,43 @@ async function savePointMap() {
 }
 
 function mapToCsv(map) {
+  const names = map ? Object.keys(map) : [...CORE_POINTS, ...KNOWN_EXTRAS];
   const lines = ['sensor,object'];
-  for (const name of ALL_POINTS) lines.push(`${name},${map[name] || ''}`);
+  for (const name of names) lines.push(`${name},${(map && map[name]) || ''}`);
   return lines.join('\r\n') + '\r\n';
 }
 
-function parseCsvToMap(text) {
-  const map = {};
-  const rows = String(text).split(/\r?\n/).filter((l) => l.trim());
-  for (const line of rows) {
-    const cells = line.split(',').map((c) => c.trim());
-    if (cells.length < 2) continue;
-    const name = cells[0].toLowerCase();
-    if (name === 'sensor' || name === 'name') continue; // header
-    if (!ALL_POINTS.includes(name)) continue;
-    const val = cells[1];
-    if (val) map[name] = val;
+// ICC/FLN mapping CSV: analog points first (4-byte stride), then binary (1-byte),
+// matching the ICC Mirus layout used to bridge onto the Siemens FLN.
+function mapToIccCsv(map, deviceId) {
+  const rows = Object.entries(map).map(([name, obj]) => {
+    const [type, inst] = obj.split(':');
+    return { name, type, inst, short: OBJ_SHORT[type] || type };
+  });
+  const analog = rows.filter((r) => r.type.startsWith('analog'));
+  const binary = rows.filter((r) => r.type.startsWith('binary'));
+  const rest = rows.filter((r) => !r.type.startsWith('analog') && !r.type.startsWith('binary'));
+  const ordered = [...analog, ...binary, ...rest];
+  const header = 'Target Device ID,Object Type,Object Instance,Object Name,Read/Write,Siemens FLN Type (Port B),Siemens Point Number,ICC Database Address';
+  const lines = [header];
+  let point = 0;
+  let addr = 0;
+  const analogBytes = analog.length * 4;
+  for (const r of ordered) {
+    point += 1;
+    const isBin = r.type.startsWith('binary');
+    const fln = r.type.startsWith('analog') ? 'LAI' : isBin ? 'LDI' : '';
+    let a;
+    if (isBin) {
+      a = analogBytes + binary.indexOf(r); // 1 byte each after the analog block
+    } else if (r.type.startsWith('analog')) {
+      a = analog.indexOf(r) * 4;
+    } else {
+      a = '';
+    }
+    lines.push(`${deviceId || ''},${r.short},${r.inst},${r.name},R/W,${fln},${point},${a}`);
   }
-  return map;
+  return lines.join('\r\n') + '\r\n';
 }
 
 async function exportMapCsv() {
@@ -1270,11 +1343,46 @@ async function exportMapCsv() {
   else if (res && res.canceled) setMapStatus('Export canceled');
 }
 
+async function exportMapIcc() {
+  const map = collectMap();
+  if (!Object.keys(map).length) {
+    setMapStatus('Nothing to export — map some points first', 'warn');
+    return;
+  }
+  const dev = ($('#scanDevice') && $('#scanDevice').value.trim()) || '';
+  const res = await window.predator.saveTextFile('icc_mstp_point_mapping.csv', mapToIccCsv(map, dev));
+  if (res && res.ok) setMapStatus('ICC/FLN map exported ' + res.path, 'ok');
+  else if (res && res.canceled) setMapStatus('Export canceled');
+}
+
 async function exportMapTemplate() {
-  const blank = {};
-  const res = await window.predator.saveTextFile('pams_points_template.csv', mapToCsv(blank));
+  const res = await window.predator.saveTextFile('pams_points_template.csv', mapToCsv(null));
   if (res && res.ok) setMapStatus('Template saved ' + res.path, 'ok');
   else if (res && res.canceled) setMapStatus('Export canceled');
+}
+
+function parseCsvToMap(text) {
+  const map = {};
+  const rows = String(text).split(/\r?\n/).filter((l) => l.trim());
+  for (const line of rows) {
+    const cells = line.split(',').map((c) => c.trim());
+    if (cells.length < 2) continue;
+    const first = cells[0].toLowerCase();
+    if (first === 'sensor' || first === 'name' || first === 'target device id') continue; // header
+    // Accept both the simple (sensor,object) and ICC (…,Object Type,Instance,Object Name,…) forms.
+    if (cells.length >= 4 && /^(AI|AO|AV|BI|BO|BV|MSI|MSO|MSV)$/i.test(cells[1])) {
+      const shortToType = Object.fromEntries(Object.entries(OBJ_SHORT).map(([k, v]) => [v, k]));
+      const type = shortToType[cells[1].toUpperCase()];
+      const inst = cells[2];
+      const name = safeName(cells[3] || `${cells[1]}${inst}`);
+      if (type && /^\d+$/.test(inst) && name) map[name] = `${type}:${inst}`;
+    } else {
+      const name = safeName(first);
+      const val = cells[1];
+      if (name && val && OBJ_RE.test(val)) map[name] = val;
+    }
+  }
+  return map;
 }
 
 function importMapCsv(file) {
@@ -1283,15 +1391,85 @@ function importMapCsv(file) {
     const imported = parseCsvToMap(reader.result);
     const n = Object.keys(imported).length;
     if (!n) {
-      setMapStatus('No recognized sensors found in CSV', 'warn');
+      setMapStatus('No valid rows found in CSV', 'warn');
       return;
     }
-    pointMap = { ...pointMap, ...imported };
+    for (const [name, obj] of Object.entries(imported)) upsertEntry(name, obj);
     renderMapTable();
     setMapStatus(`Imported ${n} points — review, then Save to Pi`, 'ok');
   };
   reader.onerror = () => setMapStatus('Could not read that file', 'warn');
   reader.readAsText(file);
+}
+
+// ----- Auto-discovery (YABE-style device scan) -----------------------------
+function renderScanResults() {
+  const box = $('#scanResults');
+  if (!box) return;
+  if (!scanObjects.length) {
+    box.innerHTML = '';
+    return;
+  }
+  box.innerHTML = `<table class="tbl scan-tbl">
+    <thead><tr><th></th><th>Object</th><th>BACnet name</th><th>Value</th><th>Map as (channel)</th></tr></thead>
+    <tbody>${scanObjects
+      .map(
+        (o, i) => `<tr>
+        <td><input type="checkbox" class="scan-pick" data-idx="${i}" ${o._pick ? 'checked' : ''} /></td>
+        <td class="mono">${escapeHtml(o.object)}</td>
+        <td>${escapeHtml(o.name)}</td>
+        <td class="mono">${o.value == null ? '—' : escapeHtml(String(o.value))}</td>
+        <td><input class="scan-name mono" data-idx="${i}" value="${escapeHtml(o._chan)}" spellcheck="false" /></td>
+      </tr>`
+      )
+      .join('')}</tbody></table>`;
+  box.querySelectorAll('.scan-pick').forEach((cb) =>
+    cb.addEventListener('change', () => {
+      scanObjects[+cb.dataset.idx]._pick = cb.checked;
+    })
+  );
+  box.querySelectorAll('.scan-name').forEach((inp) =>
+    inp.addEventListener('input', () => {
+      scanObjects[+inp.dataset.idx]._chan = inp.value;
+    })
+  );
+}
+
+async function scanDevice() {
+  const dev = ($('#scanDevice') && $('#scanDevice').value.trim()) || '';
+  if (!dev) {
+    setScanStatus('Enter a device instance first', 'warn');
+    return;
+  }
+  setScanStatus('Scanning device ' + dev + '…');
+  const applyBtn = $('#scanApply');
+  const r = await window.predator.gatewayGet('/api/scan?device=' + encodeURIComponent(dev));
+  if (r && r.ok && r.data && Array.isArray(r.data.objects)) {
+    scanObjects = r.data.objects.map((o) => ({ ...o, _pick: true, _chan: o.suggest || safeName(o.name) }));
+    renderScanResults();
+    if (applyBtn) applyBtn.disabled = scanObjects.length === 0;
+    setScanStatus(
+      scanObjects.length ? `Found ${scanObjects.length} objects — review and Apply` : (r.data.note || 'No objects found'),
+      scanObjects.length ? 'ok' : 'warn'
+    );
+  } else {
+    scanObjects = [];
+    renderScanResults();
+    if (applyBtn) applyBtn.disabled = true;
+    setScanStatus('Scan failed: ' + ((r && r.data && r.data.note) || (r && r.error) || 'gateway offline'), 'warn');
+  }
+}
+
+function applyScanSelection() {
+  const picked = scanObjects.filter((o) => o._pick && o._chan && OBJ_RE.test(o.object));
+  if (!picked.length) {
+    setScanStatus('Tick at least one object to apply', 'warn');
+    return;
+  }
+  for (const o of picked) upsertEntry(o._chan, o.object);
+  renderMapTable();
+  setScanStatus(`Applied ${picked.length} points to the map — review, then Save to Pi`, 'ok');
+  setMapStatus(`${picked.length} discovered points added below`, 'ok');
 }
 
 // ---------------------------------------------------------------------------
@@ -1378,8 +1556,15 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (mapReloadBtn) mapReloadBtn.addEventListener('click', loadPointMap);
   const mapSaveBtn = $('#mapSave');
   if (mapSaveBtn) mapSaveBtn.addEventListener('click', savePointMap);
+  const mapAddBtn = $('#mapAdd');
+  if (mapAddBtn) mapAddBtn.addEventListener('click', () => {
+    mapEntries.push({ name: '', object: '', core: false });
+    renderMapTable();
+  });
   const mapExportBtn = $('#mapExport');
   if (mapExportBtn) mapExportBtn.addEventListener('click', exportMapCsv);
+  const mapExportIccBtn = $('#mapExportIcc');
+  if (mapExportIccBtn) mapExportIccBtn.addEventListener('click', exportMapIcc);
   const mapTemplateBtn = $('#mapTemplate');
   if (mapTemplateBtn) mapTemplateBtn.addEventListener('click', exportMapTemplate);
   const mapImportBtn = $('#mapImport');
@@ -1391,6 +1576,14 @@ window.addEventListener('DOMContentLoaded', async () => {
       mapCsvFile.value = '';
     });
   }
+  const scanBtn = $('#scanBtn');
+  if (scanBtn) scanBtn.addEventListener('click', scanDevice);
+  const scanApplyBtn = $('#scanApply');
+  if (scanApplyBtn) scanApplyBtn.addEventListener('click', applyScanSelection);
+  const scanDeviceInput = $('#scanDevice');
+  if (scanDeviceInput) scanDeviceInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') scanDevice();
+  });
 
   initTerminal();
   const termClearBtn = $('#termClear');

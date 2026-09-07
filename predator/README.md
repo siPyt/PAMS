@@ -13,9 +13,11 @@ network — no internet required, no cloud, no telemetry.
   so **it changes nothing on the Pi**.
 - **Live gateway views** — Services, Devices, and Points fetch real status from a
   small read-only gateway on the Pi (`:8090`); only the **Demo** button is simulated.
-- **Point mapping editor** — the **Points** view maps each PAMS sensor to a BACnet
-  object (manually or via **CSV import/export**) and saves it live to the Pi, so
-  the ML and InfluxDB adapt to exactly the sensors that report.
+- **Point mapping editor** — the **Points** view **auto-discovers** a BACnet
+  device's objects (YABE-style), suggests a channel name for each, and lets you
+  map them (or edit/CSV-import by hand) and save live to the Pi. Channels are
+  arbitrary, so a chiller's dozens of real points all flow into the ML and
+  InfluxDB. Also exports the **ICC/FLN** mapping (for the ICC Mirus → Siemens FLN).
 - **Predictive-maintenance dashboard** — each unit card leads with the **health
   score** as the primary number; temperature is shown secondary.
 - **Real terminal** — a true interactive PowerShell PTY (via `node-pty` + xterm.js)

@@ -39,9 +39,10 @@ TERMINAL (real shell)
 
 POINT MAPPING (Points view)
 ---------------------------
-  - Map each freezer sensor to its BACnet object (objtype:instance) by hand or
-    by importing a CSV. Save to Pi writes it live; the ML and Grafana adapt to
-    exactly the sensors that report - map all 14 or just a few.
+  - Scan a BACnet device to auto-discover its objects, or map/import by hand.
+    Save to Pi writes it live; the ML and Grafana adapt to exactly the sensors
+    that report - a freezer's few or a chiller's dozens. Export ICC/FLN CSV to
+    bridge onto the Siemens FLN.
 
 DEMO MODE
 ---------

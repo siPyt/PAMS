@@ -669,6 +669,41 @@ body {
   align-items: center;
   gap: 8px;
 }
+.map-nm {
+  flex: 0 0 170px;
+  background: #05080c;
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 7px 9px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  outline: none;
+}
+.map-nm[readonly] {
+  color: var(--accent);
+  background: transparent;
+  border-color: transparent;
+}
+.map-nm:focus {
+  border-color: var(--accent);
+}
+.map-del {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text-mut);
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.map-del:hover {
+  border-color: var(--crit);
+  color: var(--crit);
+}
 .map-name {
   flex: 0 0 150px;
   font-size: 12.5px;
@@ -677,6 +712,37 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.scan-device {
+  flex: 0 0 220px;
+  background: #05080c;
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 7px 10px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12.5px;
+  outline: none;
+}
+.scan-device:focus {
+  border-color: var(--accent);
+}
+.scan-results {
+  max-height: 340px;
+  overflow: auto;
+}
+.scan-tbl .scan-name {
+  width: 100%;
+  background: #05080c;
+  border: 1px solid var(--line);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 5px 7px;
+  font-size: 12px;
+  outline: none;
+}
+.scan-tbl .scan-name:focus {
+  border-color: var(--accent);
 }
 .map-core {
   font-size: 9px;
