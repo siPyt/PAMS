@@ -838,7 +838,78 @@ const DOCS = [
       without a live connection.</p>`
   },
   {
-    title: 'Connecting to the Pi (USB / Ethernet / WiFi)',
+    title: 'Quick start — your first 5 minutes',
+    tags: 'quick start getting started first steps begin how to use tutorial walkthrough guide setup basics',
+    body: `<p>New here? Do this in order:</p>
+      <ol>
+        <li><b>Open Predator</b> from the desktop shortcut. It starts on the
+          Dashboard and immediately searches for the Pi (<code>alpha-p</code>).</li>
+        <li><b>Check the status pill</b> (top-right). Teal <b>connected</b> = talking
+          to the Pi. Amber <b>searching</b> = not found yet (see <i>Connecting to
+          the Pi</i>).</li>
+        <li><b>No live data yet?</b> Click <b>Demo</b> (top-right) to fill the app
+          with four simulated freezers so you can learn the screens. Click it again
+          to turn it off.</li>
+        <li><b>Explore the views</b> from the left sidebar: Dashboard (fleet health),
+          Trends (history), Health/ML (model detail), Connections (find the Pi),
+          Devices &amp; Points (BACnet), Services, Terminal, and this Help.</li>
+        <li><b>To hook up a real device</b>, go to <b>Points</b> and follow
+          <i>Full setup — discover &amp; map a device</i> below.</li>
+      </ol>
+      <p>Tip: use the search box on this Help page to jump to any topic.</p>`
+  },
+  {
+    title: 'Full setup — discover & map a device (step by step)',
+    tags: 'setup commission device map points discover scan bus baud whois workflow how to bacnet mstp ip step by step tutorial guide configure',
+    body: `<p>This is the end-to-end workflow to get a real BACnet device into PAMS.
+      Open the <b>Points</b> view and work top to bottom:</p>
+      <ol>
+        <li><b>See what PAMS can reach.</b> The <b>What PAMS can access</b> panel
+          lists the Pi's serial ports, networks, and which protocols are available
+          (BACnet MS/TP and/or BACnet/IP). Press <b>Refresh</b> if you just plugged
+          something in.</li>
+        <li><b>Pick the transport.</b> In <b>Auto-discover</b>, set <b>Transport</b>
+          to <b>MS/TP</b> (RS-485 trunk) or <b>BACnet/IP</b> (LAN).</li>
+        <li><b>Find the device.</b>
+          <ul>
+            <li>MS/TP: click <b>Find bus</b> — PAMS sweeps the baud rates, sends
+              Who-Is, saves the working baud, and lists the devices it finds.</li>
+            <li>BACnet/IP: click <b>Find devices</b> — PAMS broadcasts a Who-Is on
+              the LAN and lists responders.</li>
+          </ul>
+          Click <b>Scan</b> next to a discovered device (or type its instance number
+          into the box and press <b>Scan device</b>).</li>
+        <li><b>Review the objects.</b> The scan lists every object with its BACnet
+          name, present value, and engineering units, plus a suggested PAMS channel
+          name. Untick anything you don't want; rename channels if you like.</li>
+        <li><b>Apply.</b> Click <b>Apply selected</b> — the chosen points drop into
+          the mapping table below.</li>
+        <li><b>Fine-tune (optional).</b> In <b>Sensor point mapping</b> you can edit
+          any object (<code>objtype:instance</code>), rename a channel, <b>+ Add
+          point</b>, remove rows, or <b>Import CSV</b> from Excel.</li>
+        <li><b>Save to Pi.</b> Click <b>Save to Pi</b>. The BMS node picks up the new
+          map automatically — no restart. Only points that actually read are used;
+          the ML and InfluxDB adapt to exactly what reports.</li>
+      </ol>
+      <p>That's it — data now flows into the ML, InfluxDB/Grafana, and the Dashboard.
+      Re-open Points anytime to adjust the mapping.</p>`
+  },
+  {
+    title: 'What PAMS can access (capabilities)',
+    tags: 'capabilities access transports serial ports network interfaces protocols bacnet mstp ip discover what can reach',
+    body: `<p>At the top of the <b>Points</b> view, the <b>What PAMS can access</b>
+      panel shows what the Pi can physically reach and speak:</p>
+      <ul>
+        <li><b>Protocols</b> — a green dot means it's available now; grey shows why
+          not (e.g. no serial port, or tools missing).</li>
+        <li><b>Serial ports</b> — RS-485/USB adapters detected (used for MS/TP).</li>
+        <li><b>Networks</b> — the Pi's live interfaces/subnets (used for BACnet/IP).</li>
+        <li><b>BACnet tools</b> — whether the bacnet-stack tools are installed.</li>
+      </ul>
+      <p>PAMS adapts discovery to whatever is present, so this tells you at a glance
+      which discovery options will work. Press <b>Refresh</b> after plugging in a
+      cable or adapter.</p>`
+  },
     tags: 'connect connection network ethernet usb wifi mdns alpha-p endpoints link',
     body: `<p>Predator reaches <code>alpha-p</code> over whichever link is plugged in and
       switches automatically if you swap cables. It tries these in order and uses
@@ -876,11 +947,17 @@ const DOCS = [
   },
   {
     title: 'Devices (BACnet explorer)',
-    tags: 'devices bacnet yabe explorer tree objects present value discover',
-    body: `<p>A YABE-style explorer. Pick a device on the left to see its objects
-      (analog-input, binary-input, analog-value) with present values and R/W
-      access. In the current build this is a <b>preview</b> with representative
-      data; live discovery/read activates with the Pi-side gateway.</p>`
+    tags: 'devices bacnet yabe explorer tree objects present value discover whois live',
+    body: `<p>Shows BACnet devices the Pi discovers (Who-Is). To populate it:</p>
+      <ol>
+        <li>Make sure the Pi is on the trunk/LAN (see <b>What PAMS can access</b>).</li>
+        <li>Open the view — it runs a discovery and lists responding devices by
+          instance number.</li>
+        <li>To read a device's objects, use <b>Points → Scan device</b> with that
+          instance number.</li>
+      </ol>
+      <p>Empty list = nothing answered (wrong baud, wiring, or no device). Use
+      <b>Points → Find bus</b> to auto-detect the baud first.</p>`
   },
   {
     title: 'Points — auto-discover & sensor mapping',
@@ -953,10 +1030,13 @@ const DOCS = [
   },
   {
     title: 'Services',
-    tags: 'services systemd containers docker status start stop restart pams-ml pams-bms',
-    body: `<p>Lists the PAMS services and containers (broker, Node-RED, InfluxDB,
-      Grafana, ML/BMS) with status. Controls are a <b>preview</b>; live status and
-      start/stop/restart activate with the Pi-side gateway.</p>`
+    tags: 'services systemd containers docker status start stop restart pams-ml pams-bms live gateway',
+    body: `<p>Shows the real status of the PAMS services and containers on the Pi —
+      the MQTT broker, Node-RED, InfluxDB, Grafana, and the ML/BMS services —
+      fetched live from the Pi-side gateway.</p>
+      <p>Use it to confirm everything is running (green/active). If a service is
+      down, restart it from the <b>Terminal</b> with
+      <code>ssh admin@alpha-p</code>.</p>`
   },
   {
     title: 'Settings (endpoints & ports)',
@@ -979,25 +1059,36 @@ const DOCS = [
   },
   {
     title: 'Troubleshooting — no data / can\u2019t connect',
-    tags: 'troubleshoot no data blank empty not connecting problem fix spinner waiting broker',
-    body: `<p>If the Dashboard says <b>No live data</b>:</p>
+    tags: 'troubleshoot no data blank empty not connecting problem fix spinner waiting broker discover scan find bus baud device offline help',
+    body: `<p><b>Dashboard says "No live data":</b></p>
       <ul>
-        <li>Confirm the PC is on the same network as <code>alpha-p</code> (or
-          cabled to it).</li>
-        <li>Check the status pill (top-right) — <b>connected</b> vs
-          <b>searching</b>.</li>
-        <li>Even when connected, the dashboard stays empty until a freezer (or a
-          simulator) publishes data. Use <b>Demo</b> to verify the UI works.</li>
-        <li>Verify endpoints/ports in <b>Settings</b>, then Save &amp; reconnect.</li>
-      </ul>`
+        <li>Confirm the PC is on the same network as <code>alpha-p</code> (or cabled
+          to it) and the status pill shows <b>connected</b>.</li>
+        <li>When connected, the dashboard still stays empty until a device (or the
+          Demo) publishes data. Turn on <b>Demo</b> to confirm the UI works.</li>
+        <li>Check <b>Settings</b> endpoints/ports, then <b>Save &amp; reconnect</b>.</li>
+      </ul>
+      <p><b>Find bus / scan finds nothing:</b></p>
+      <ul>
+        <li>Check <b>Points \u2192 What PAMS can access</b>: is the protocol you need
+          marked available? No serial port = no MS/TP; no network = no BACnet/IP.</li>
+        <li>MS/TP: verify wiring \u2014 A/B polarity (try swapping the two data wires),
+          ground/reference, and end-of-line termination + bias on the trunk.</li>
+        <li>Confirm the trunk is really <b>BACnet MS/TP</b> (not Siemens P1/P2 FLN).</li>
+        <li>BACnet/IP: make sure the device and the Pi are on the same subnet.</li>
+      </ul>
+      <p><b>Gateway offline</b> in Points/Services: the Pi-side gateway isn't running
+      \u2014 from the Terminal, <code>ssh admin@alpha-p</code> then restart it.</p>`
   },
   {
     title: 'Safety & privacy',
-    tags: 'safety privacy offline secure telemetry pams-safe read-only',
-    body: `<p>Predator makes no internet calls and has no telemetry. It reads the data
-      PAMS already publishes and does not change anything on the Pi. Write actions
-      (points, services) are disabled until a gateway is added, and will require
-      explicit confirmation.</p>`
+    tags: 'safety privacy offline secure telemetry read-only writes mapping gateway',
+    body: `<p>Predator makes no internet calls and has no telemetry — it talks only to
+      the PAMS host on your LAN. Live monitoring is read-only.</p>
+      <p>The only things that change the Pi are explicit actions you take:
+      <b>Save to Pi</b> in Points (writes the sensor map) and commands you type in
+      the <b>Terminal</b>. The <b>Demo</b> button is fully simulated and never
+      touches the Pi.</p>`
   },
   {
     title: 'Connections manager (RSWho-style)',
