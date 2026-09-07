@@ -55,6 +55,21 @@ def primary_ip():
         s.close()
 
 
+def free_port(ip, ports=(47808, 47809, 47810, 47811, 0)):
+    """First bindable UDP port on ip (0 = OS-assigned). Lets us discover even
+    while a poller already owns 47808 - devices reply to our source port."""
+    for p in ports:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.bind((ip, p))
+            actual = s.getsockname()[1]
+            s.close()
+            return actual
+        except OSError:
+            s.close()
+    return 0
+
+
 def suggest_channel(name):
     s = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name or "")
     s = re.sub(r"[^0-9A-Za-z]+", "_", s)
@@ -62,7 +77,13 @@ def suggest_channel(name):
 
 
 def make_app():
-    bind = os.environ.get("PAMS_BIP_BIND") or (primary_ip() + "/24")
+    ip = primary_ip()
+    env_bind = os.environ.get("PAMS_BIP_BIND")
+    if env_bind:
+        bind = env_bind
+    else:
+        port = free_port(ip)
+        bind = f"{ip}/24" if port == 47808 else f"{ip}:{port}"
     dev = LocalDeviceObject(objectName="PAMSGateway", objectIdentifier=("device", 599000),
                             maxApduLengthAccepted=1024, segmentationSupported="noSegmentation",
                             vendorIdentifier=15)

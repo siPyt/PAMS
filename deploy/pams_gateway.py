@@ -31,6 +31,7 @@ import os
 import re
 import subprocess
 import time
+import contextlib
 import configparser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -190,17 +191,62 @@ def cached(key, ttl, producer):
     return val
 
 
+def _running_pollers():
+    """Running IP pollers as (unit, device) parsed from their argv."""
+    out = []
+    rc, so, _ = run(["pgrep", "-af", "pams_ip_poller.py"], timeout=5)
+    if rc == 0 and so:
+        for line in so.splitlines():
+            m = re.search(r"pams_ip_poller\.py\s+(\S+)\s+(\d+)", line)
+            if m:
+                out.append((m.group(1), int(m.group(2))))
+    return out
+
+
+def _launch_poller(unit, device):
+    unit_pts = os.path.expanduser(f"~/pams_points_{unit}.json")
+    log = os.path.expanduser(f"~/pams_poller_{unit}.log")
+    env = os.environ.copy()
+    if os.path.exists(unit_pts):
+        env["PAMS_POINTS_FILE"] = unit_pts
+    try:
+        with open(log, "ab") as lf:
+            subprocess.Popen(["setsid", VENV_PY, "-u", POLLER, unit, str(device)],
+                             env=env, stdout=lf, stderr=lf, stdin=subprocess.DEVNULL,
+                             start_new_session=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+@contextlib.contextmanager
+def _pollers_paused():
+    """Free UDP 47808 for discovery, then resume monitoring. YABE-style sims reply
+    to the standard port 47808, so a running poller (which owns it) blocks discovery;
+    we briefly stop pollers, discover, then relaunch them."""
+    active = _running_pollers()
+    if active:
+        run(["pkill", "-f", "pams_ip_poller.py"], timeout=5)
+        time.sleep(1.5)
+    try:
+        yield
+    finally:
+        for unit, device in active:
+            _launch_poller(unit, device)
+
+
 def run_ip_helper(args, timeout=20):
-    """Call the bacpypes BACnet/IP helper (venv). Returns parsed JSON or None."""
+    """Call the bacpypes BACnet/IP helper (venv). Returns parsed JSON or None.
+    Pauses any running pollers so the helper can bind port 47808 for discovery."""
     if not (os.path.exists(VENV_PY) and os.path.exists(IP_HELPER)):
         return None
-    try:
-        r = subprocess.run([VENV_PY, IP_HELPER] + [str(a) for a in args],
-                           capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return {"error": "timeout", "devices": [], "objects": []}
-    except Exception:  # noqa: BLE001
-        return None
+    with _pollers_paused():
+        try:
+            r = subprocess.run([VENV_PY, IP_HELPER] + [str(a) for a in args],
+                               capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return {"error": "timeout", "devices": [], "objects": []}
+        except Exception:  # noqa: BLE001
+            return None
     for line in reversed((r.stdout or "").splitlines()):
         line = line.strip()
         if line.startswith("{"):

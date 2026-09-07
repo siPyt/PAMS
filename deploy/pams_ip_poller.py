@@ -66,7 +66,23 @@ def primary_ip():
         s.close()
 
 
-BIND = os.environ.get("PAMS_BIP_BIND") or (primary_ip() + "/24")
+def free_port(ip, ports=(47808, 47809, 47810, 47811, 0)):
+    """First bindable UDP port so multiple pollers (and discovery) can coexist."""
+    for p in ports:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.bind((ip, p))
+            actual = s.getsockname()[1]
+            s.close()
+            return actual
+        except OSError:
+            s.close()
+    return 0
+
+
+_ip = primary_ip()
+_port = free_port(_ip)
+BIND = os.environ.get("PAMS_BIP_BIND") or (f"{_ip}/24" if _port == 47808 else f"{_ip}:{_port}")
 _found = {}
 
 
