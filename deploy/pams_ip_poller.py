@@ -114,10 +114,16 @@ def read_pv(addr, dashed_type, inst):
     try:
         return float(val)
     except (TypeError, ValueError):
-        try:
-            return float(int(val))
-        except Exception:
-            return None
+        pass
+    # binary/enumerated present-value casts to 'active'/'inactive' etc.
+    sval = str(val).strip().lower()
+    binmap = {"active": 1.0, "inactive": 0.0, "true": 1.0, "false": 0.0, "on": 1.0, "off": 0.0}
+    if sval in binmap:
+        return binmap[sval]
+    try:
+        return float(int(val))
+    except Exception:
+        return None
 
 
 def load_points():
