@@ -1417,7 +1417,7 @@ function renderScanResults() {
     return;
   }
   box.innerHTML = `<table class="tbl scan-tbl">
-    <thead><tr><th></th><th>Object</th><th>BACnet name</th><th>Value</th><th>Map as (channel)</th></tr></thead>
+    <thead><tr><th></th><th>Object</th><th>BACnet name</th><th>Value</th><th>Units</th><th>Map as (channel)</th></tr></thead>
     <tbody>${scanObjects
       .map(
         (o, i) => `<tr>
@@ -1425,6 +1425,7 @@ function renderScanResults() {
         <td class="mono">${escapeHtml(o.object)}</td>
         <td>${escapeHtml(o.name)}</td>
         <td class="mono">${o.value == null ? '—' : escapeHtml(String(o.value))}</td>
+        <td class="mono">${o.units ? escapeHtml(String(o.units)) : '—'}</td>
         <td><input class="scan-name mono" data-idx="${i}" value="${escapeHtml(o._chan)}" spellcheck="false" /></td>
       </tr>`
       )

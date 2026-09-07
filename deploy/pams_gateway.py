@@ -297,6 +297,10 @@ def get_scan(device, limit=250):
             break
         _, nm, _ = run([tool, str(device), tname, str(inst), "77"], timeout=6, env=mstp_env())   # object-name
         _, pv, _ = run([tool, str(device), tname, str(inst), "85"], timeout=6, env=mstp_env())   # present-value
+        units = None
+        if tname.startswith("analog"):
+            _, un, _ = run([tool, str(device), tname, str(inst), "117"], timeout=6, env=mstp_env())  # units
+            units = (un or "").strip().strip('"') or None
         name = (nm or "").strip().strip('"') or f"{OBJ_TYPES[tname]}{inst}"
         objects.append({
             "type": tname,
@@ -305,6 +309,7 @@ def get_scan(device, limit=250):
             "object": f"{tname}:{inst}",
             "name": name,
             "value": (pv or "").strip() or None,
+            "units": units,
             "suggest": suggest_channel(name),
         })
     note = "" if objects else "object-list parsed but no readable objects"
