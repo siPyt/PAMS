@@ -746,7 +746,7 @@ function renderConnections() {
 
   const disc = connState.discovered.length
     ? connState.discovered.map((h) => connItem(h, { mqtt: true }, true, h === active)).join('')
-    : `<div class="conn-empty">${connState.scanning ? 'Scanning subnet…' : 'Press “Scan network” to browse the local subnet for PAMS hosts.'}</div>`;
+    : `<div class="conn-empty">${connState.scanning ? 'Scanning subnet…' : 'Press “Find the Pi” to search the local subnet for the PAMS host.'}</div>`;
 
   el.innerHTML = `
     <div class="tree-root"><span class="ti-ico">▣</span> PAMS Network</div>
@@ -1109,23 +1109,27 @@ const DOCS = [
   },
   {
     title: 'Connections manager (RSWho-style)',
-    tags: 'connections rswho rslinx browse scan network discover connect endpoint manager select driver online offline',
-    body: `<p>The <b>Connections</b> view is a network browser, similar to RSLinx
-      RSWho. It shows the PAMS network as a tree and lets you find and pick the
-      host.</p>
+    tags: 'connections rswho rslinx browse scan network discover connect endpoint manager select driver online offline pi host server not device bacnet',
+    body: `<p>The <b>Connections</b> view connects Predator to the <b>PAMS Raspberry
+      Pi</b> — the server that runs MQTT, InfluxDB, Node-RED and Grafana. It is
+      <b>not</b> for BACnet field devices (freezers, chillers, the simulator):
+      discover those in <b>Points</b>, and their data appears on the
+      <b>Dashboard</b>.</p>
       <ul>
         <li><b>Refresh</b> — probes every configured endpoint and shows which are
           online and which services answer (MQTT, InfluxDB, Node-RED, Grafana, SSH).</li>
-        <li><b>Scan network</b> — sweeps your PC's local subnet(s) for any host with
+        <li><b>Find the Pi</b> — sweeps your PC's local subnet(s) for a host with
           the MQTT port open, so you can find <code>alpha-p</code> even without a
           hostname.</li>
         <li><b>Connect</b> — click Connect on a host to make it the active
           connection; Predator remembers it for next time.</li>
-        <li><b>Add host or IP</b> — type an address and press Add to include it in
-          the endpoint list.</li>
+        <li><b>Add host or IP</b> — type the Pi's address and press Add. (Don't add
+          a BACnet device IP here — it will just show "offline" because it isn't a
+          PAMS server.)</li>
       </ul>
-      <p>Green dot = reachable, grey = offline. The banner shows the currently
-      connected host.</p>`
+      <p>Green dot = a reachable PAMS host, grey = not a PAMS server. The banner
+      shows the currently connected Pi. A field device showing "offline" here is
+      normal and expected — it lives in Points, not Connections.</p>`
   },
   {
     title: 'First run & prerequisites',
