@@ -251,10 +251,10 @@ function connectTo(host) {
 // ---------------------------------------------------------------------------
 // Gateway fetch (real Services/Devices/Points from the Pi-side gateway :8090)
 // ---------------------------------------------------------------------------
-function gatewayGet(pathname) {
+function gatewayGet(pathname, timeoutMs) {
   return new Promise((resolve) => {
     const host = activeHost || config.hosts[0] || 'alpha-p.local';
-    const req = http.get({ host, port: 8090, path: pathname, timeout: 5000 }, (res) => {
+    const req = http.get({ host, port: 8090, path: pathname, timeout: timeoutMs || 5000 }, (res) => {
       let data = '';
       res.on('data', (c) => (data += c));
       res.on('end', () => {
@@ -420,7 +420,9 @@ ipcMain.handle('app:reconnect', () => {
 ipcMain.handle('net:probe', () => scanEndpoints());
 ipcMain.handle('net:scan', () => scanSubnet());
 ipcMain.handle('app:connectTo', (_event, host) => connectTo(host));
-ipcMain.handle('gateway:get', (_event, pathname) => gatewayGet(pathname));
+ipcMain.handle('gateway:get', (_event, args) =>
+  typeof args === 'string' ? gatewayGet(args) : gatewayGet(args.path, args.timeout)
+);
 ipcMain.handle('gateway:post', (_event, args) => gatewayPost((args && args.path) || '', (args && args.body) || {}));
 ipcMain.handle('file:saveText', async (_event, args) => {
   const { defaultName, text } = args || {};

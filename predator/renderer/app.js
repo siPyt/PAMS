@@ -885,6 +885,9 @@ const DOCS = [
     body: `<p>The <b>Points</b> view discovers and maps a device's BACnet objects to
       PAMS channels.</p>
       <ul>
+        <li><b>Find bus</b> — auto-detects the MS/TP <b>baud rate</b> by sending
+          Who-Is at each common rate, then lists the devices it finds; click one
+          to scan it. The winning baud is saved on the Pi.</li>
         <li><b>Auto-discover</b> — enter a device instance and <b>Scan device</b>.
           Predator reads the object list (YABE-style) and suggests a channel name
           for each point; tick the ones you want and <b>Apply selected</b>.</li>
@@ -1475,6 +1478,57 @@ function applyScanSelection() {
   setMapStatus(`${picked.length} discovered points added below`, 'ok');
 }
 
+// ----- Bus discovery (auto baud sweep + Who-Is) ----------------------------
+function setBusStatus(text, kind) {
+  const el = $('#busScanStatus');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'map-status' + (kind ? ' ' + kind : '');
+}
+
+function renderBusResults(data) {
+  const box = $('#busScanResults');
+  if (!box) return;
+  const rows = (data.results || [])
+    .map((r) => {
+      const hit = r.count > 0;
+      const devs = (r.devices || [])
+        .map((d) => `<button class="btn ghost sm scan-dev" data-dev="${d.instance}">Scan ${d.instance}</button>`)
+        .join(' ');
+      return `<tr class="${hit ? 'bus-hit' : ''}">
+        <td class="mono">${r.baud}</td>
+        <td class="mono">${r.count}</td>
+        <td>${devs || (hit ? '' : '—')}</td>
+      </tr>`;
+    })
+    .join('');
+  box.innerHTML = `<table class="tbl scan-tbl">
+    <thead><tr><th>Baud</th><th>Devices</th><th>Discovered (click to scan)</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+  box.querySelectorAll('.scan-dev').forEach((b) =>
+    b.addEventListener('click', () => {
+      const inp = $('#scanDevice');
+      if (inp) inp.value = b.dataset.dev;
+      scanDevice();
+    })
+  );
+}
+
+async function findBus() {
+  setBusStatus('Sweeping bauds & sending Who-Is… (up to ~60s)');
+  const r = await window.predator.gatewayGet('/api/bus-scan', 90000);
+  if (r && r.ok && r.data && Array.isArray(r.data.results)) {
+    renderBusResults(r.data);
+    if (r.data.best_baud) {
+      setBusStatus(`Trunk found at ${r.data.best_baud} baud${r.data.saved ? ' (saved)' : ''} — scan a device below`, 'ok');
+    } else {
+      setBusStatus(r.data.note || 'No devices responded at any baud', 'warn');
+    }
+  } else {
+    setBusStatus('Bus scan failed: ' + ((r && r.data && r.data.note) || (r && r.error) || 'gateway offline'), 'warn');
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Terminal (real PTY via xterm.js)
 // ---------------------------------------------------------------------------
@@ -1615,6 +1669,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
   const scanBtn = $('#scanBtn');
   if (scanBtn) scanBtn.addEventListener('click', scanDevice);
+  const busScanBtn = $('#busScanBtn');
+  if (busScanBtn) busScanBtn.addEventListener('click', findBus);
   const scanApplyBtn = $('#scanApply');
   if (scanApplyBtn) scanApplyBtn.addEventListener('click', applyScanSelection);
   const scanDeviceInput = $('#scanDevice');

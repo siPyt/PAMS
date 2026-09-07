@@ -8,6 +8,7 @@ Exposes REAL data that Predator's Services / Devices / Points views consume:
   GET  /api/devices             -> best-effort BACnet Who-Is discovery
   GET  /api/points?device=<id>  -> best-effort BACnet object reads for a device
   GET  /api/scan?device=<id>    -> YABE-style object-list + names + auto-suggest
+  GET  /api/bus-scan            -> auto-find MS/TP baud (Who-Is sweep) + devices
   GET  /api/points-map          -> current BMS soft-sensor object mapping
   POST /api/points-map          -> save the mapping (~/pams_points.json)
 
@@ -26,13 +27,19 @@ import os
 import re
 import subprocess
 import time
+import configparser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 PORT = int(os.environ.get("PAMS_GATEWAY_PORT", "8090"))
 BACNET_BIN = os.path.expanduser(os.environ.get("PAMS_BACNET_BIN", "~/bacnet-stack/bin"))
 POINTS_FILE = os.path.expanduser(os.environ.get("PAMS_POINTS_FILE", "~/pams_points.json"))
+MSTP_CONF = os.path.expanduser(os.environ.get("PAMS_CONFIG", "~/pams_mstp.conf"))
 SYSTEMD_UNITS = ["pams-ml", "pams-bms"]
+
+# Common BACnet MS/TP baud rates, most-likely first (matches pams_control.py).
+SWEEP_BAUDS = ["38400", "76800", "9600", "19200", "115200"]
+_TOTAL_RE = re.compile(r"Total Devices:\s*(\d+)")
 
 # Recognized soft-sensor channels (must match EXTRA_SENSOR_ORDER in pams_ml.py).
 KNOWN_POINTS = [
@@ -47,9 +54,9 @@ _OBJ_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*:\d+$")
 _cache = {}
 
 
-def run(cmd, timeout=6):
+def run(cmd, timeout=6, env=None):
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
         return r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip()
     except FileNotFoundError:
         return 127, "", "not found"
@@ -57,6 +64,92 @@ def run(cmd, timeout=6):
         return 124, "", "timeout"
     except Exception as e:  # noqa: BLE001
         return 1, "", str(e)
+
+
+def mstp_cfg():
+    """Load serial/target settings from pams_mstp.conf (with safe defaults)."""
+    cfg = configparser.ConfigParser()
+    cfg["serial"] = {
+        "iface": "/dev/ttyUSB0", "baud": "38400", "our_mac": "45",
+        "max_master": "127", "max_info_frames": "1", "apdu_timeout_ms": "3000",
+    }
+    cfg["target"] = {"device_instance": "1", "mac": ""}
+    try:
+        if os.path.exists(MSTP_CONF):
+            cfg.read(MSTP_CONF)
+    except Exception:  # noqa: BLE001
+        pass
+    return cfg
+
+
+def mstp_env(baud=None):
+    """Environment that selects the MS/TP datalink for bacnet-stack tools."""
+    cfg = mstp_cfg()
+    s = cfg["serial"]
+    env = os.environ.copy()
+    env.update({
+        "BACNET_DATALINK": "mstp",
+        "BACNET_IFACE": s["iface"],
+        "BACNET_MSTP_IFACE": s["iface"],
+        "BACNET_MSTP_BAUD": str(baud or s["baud"]),
+        "BACNET_MSTP_MAC": s["our_mac"],
+        "BACNET_MAX_MASTER": s["max_master"],
+        "BACNET_MAX_INFO_FRAMES": s["max_info_frames"],
+        "BACNET_APDU_TIMEOUT": s["apdu_timeout_ms"],
+    })
+    return env
+
+
+def save_mstp_baud(baud):
+    """Persist a discovered baud to pams_mstp.conf so later scans use it."""
+    cfg = mstp_cfg()
+    cfg["serial"]["baud"] = str(baud)
+    try:
+        with open(MSTP_CONF, "w") as f:
+            f.write("# PAMS MS/TP configuration (written by pams_gateway.py)\n")
+            cfg.write(f)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _parse_devices(text):
+    """Pull device instance numbers from bacwi (Who-Is) output."""
+    devices = []
+    for line in (text or "").splitlines():
+        low = line.lower()
+        if "device" in low and "mac" in low:
+            continue  # header row
+        if "total devices" in low:
+            continue
+        m = re.match(r"\s*(\d{1,7})\b", line)
+        if m:
+            inst = int(m.group(1))
+            if inst not in devices:
+                devices.append(inst)
+    return devices
+
+
+def get_bus_scan():
+    """Auto-find the trunk baud: send Who-Is at each common rate, report devices,
+    and persist the winning baud. Slow (a few seconds per rate)."""
+    tool = os.path.join(BACNET_BIN, "bacwi")
+    if not os.path.exists(tool):
+        return {"results": [], "note": "bacnet-stack tools not installed", "ts": time.time()}
+    results = []
+    best = None
+    for b in SWEEP_BAUDS:
+        rc, so, se = run([tool], timeout=12, env=mstp_env(b))
+        n = int(_TOTAL_RE.search((so or "") + "\n" + (se or "")).group(1)) if _TOTAL_RE.search((so or "") + "\n" + (se or "")) else 0
+        devs = _parse_devices(so)
+        if not n and devs:
+            n = len(devs)
+        results.append({"baud": b, "count": n, "devices": devs})
+        if n > 0 and best is None:
+            best = b
+    saved = save_mstp_baud(best) if best else False
+    note = "" if best else "no devices responded at any baud (check wiring / A-B polarity / termination)"
+    return {"results": results, "best_baud": best, "saved": saved, "note": note, "ts": time.time()}
 
 
 def cached(key, ttl, producer):
@@ -94,16 +187,12 @@ def get_devices():
     tool = os.path.join(BACNET_BIN, "bacwi")
     if not os.path.exists(tool):
         return {"devices": [], "note": "bacnet-stack tools not installed", "ts": time.time()}
-    rc, so, se = run([tool], timeout=5)
-    devices = []
-    for line in (so or "").splitlines():
-        m = re.search(r"(\d{1,7})", line)
-        if m and ("device" in line.lower() or "instance" in line.lower()):
-            devices.append({"instance": int(m.group(1)), "raw": line.strip()})
-    note = "" if devices else "no BACnet devices responded (no hardware on the trunk?)"
+    rc, so, se = run([tool], timeout=12, env=mstp_env())
+    devices = [{"instance": i} for i in _parse_devices(so)]
+    note = "" if devices else "no BACnet devices responded (check baud / wiring)"
     if rc == 124:
         note = "discovery timed out"
-    return {"devices": devices, "note": note, "ts": time.time()}
+    return {"devices": devices, "baud": mstp_cfg()["serial"]["baud"], "note": note, "ts": time.time()}
 
 
 def get_points(device):
@@ -121,7 +210,7 @@ def get_points(device):
     points = []
     type_map = {"analog-input": 0, "binary-input": 3, "analog-value": 2}
     for tname, inst, label in probes:
-        rc, so, _ = run([tool, str(device), str(type_map[tname]), str(inst), "85"], timeout=5)
+        rc, so, _ = run([tool, str(device), str(type_map[tname]), str(inst), "85"], timeout=6, env=mstp_env())
         points.append(
             {"object": label, "value": so.strip() if rc == 0 and so else None, "ok": rc == 0}
         )
@@ -192,7 +281,7 @@ def get_scan(device, limit=250):
     if not device:
         return {"objects": [], "note": "no device specified", "ts": time.time()}
     # Property 76 = object-list on the device object.
-    rc, so, se = run([tool, str(device), "device", str(device), "76"], timeout=20)
+    rc, so, se = run([tool, str(device), "device", str(device), "76"], timeout=20, env=mstp_env())
     if rc != 0 or not so:
         note = "scan timed out" if rc == 124 else (se or "no object-list returned (no hardware?)")
         return {"objects": [], "device": device, "note": note, "ts": time.time()}
@@ -206,8 +295,8 @@ def get_scan(device, limit=250):
         seen.append(key)
         if len(objects) >= limit:
             break
-        _, nm, _ = run([tool, str(device), tname, str(inst), "77"], timeout=6)   # object-name
-        _, pv, _ = run([tool, str(device), tname, str(inst), "85"], timeout=6)   # present-value
+        _, nm, _ = run([tool, str(device), tname, str(inst), "77"], timeout=6, env=mstp_env())   # object-name
+        _, pv, _ = run([tool, str(device), tname, str(inst), "85"], timeout=6, env=mstp_env())   # present-value
         name = (nm or "").strip().strip('"') or f"{OBJ_TYPES[tname]}{inst}"
         objects.append({
             "type": tname,
@@ -257,6 +346,8 @@ class Handler(BaseHTTPRequestHandler):
             elif u.path == "/api/scan":
                 dev = (q.get("device") or [""])[0]
                 self._send(200, cached(f"scan:{dev}", 20, lambda: get_scan(dev)))
+            elif u.path == "/api/bus-scan":
+                self._send(200, cached("bus-scan", 15, get_bus_scan))
             elif u.path == "/api/points-map":
                 self._send(200, get_points_map())
             else:

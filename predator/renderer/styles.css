@@ -744,6 +744,12 @@ body {
 .scan-tbl .scan-name:focus {
   border-color: var(--accent);
 }
+.scan-tbl tr.bus-hit td {
+  color: var(--ok);
+}
+.scan-tbl .scan-dev {
+  margin: 2px 0;
+}
 .map-core {
   font-size: 9px;
   text-transform: uppercase;
