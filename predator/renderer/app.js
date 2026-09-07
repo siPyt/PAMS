@@ -186,9 +186,14 @@ function cardTemplate(u) {
       </div>
     </div>
     <div class="card-main">
-      <div class="temp">${fmt(temp, 1)}<span class="u">°C</span></div>
-      <div class="health-ring" style="--p:${hp};--c:${healthColor(health)}">
-        <span class="health-val ${healthClass(health)}">${health == null ? '—' : Math.round(health)}</span>
+      <div class="health-primary">
+        <div class="hp-val ${healthClass(health)}">${health == null ? '—' : Math.round(health)}</div>
+        <div class="hp-lbl">health score</div>
+        <div class="hp-bar"><span style="width:${hp}%;background:${healthColor(health)}"></span></div>
+      </div>
+      <div class="temp-mini">
+        <div class="tm-val">${fmt(temp, 1)}<span class="u">°C</span></div>
+        <div class="tm-lbl">temp</div>
       </div>
     </div>
     <canvas class="spark" width="600" height="92"></canvas>
@@ -311,6 +316,7 @@ function navigate(view) {
   if (view === 'settings') fillSettings();
   renderActive();
   if (view === 'connections') doProbe();
+  if (view === 'points') loadPointMap();
   if (view === 'terminal') {
     initTerminal();
     setTimeout(() => {
@@ -855,11 +861,13 @@ const DOCS = [
   },
   {
     title: 'Dashboard',
-    tags: 'dashboard fleet units cards summary health temperature door anomaly sparkline',
-    body: `<p>The fleet at a glance. Each card shows temperature, a color-coded health
-      ring, a temperature sparkline, door state, RUL, thermal velocity, inferred
-      state, and anomaly/training badges. The top bar totals healthy / watch /
-      critical / anomalies.</p>
+    tags: 'dashboard fleet units cards summary health temperature door anomaly sparkline predictive maintenance',
+    body: `<p>The fleet at a glance, built around <b>predictive maintenance</b>: the
+      big number on each card is the <b>health score</b> (0–100), with temperature
+      shown small as a secondary reading. Each card also has a temperature
+      sparkline, door state, RUL, thermal velocity, inferred state, and
+      anomaly/training badges. The top bar totals healthy / watch / critical /
+      anomalies.</p>
       <p>Colors: <b>green</b> healthy (≥80), <b>amber</b> watch (50–79),
       <b>red</b> critical (&lt;50).</p>`
   },
@@ -872,11 +880,21 @@ const DOCS = [
       data; live discovery/read activates with the Pi-side gateway.</p>`
   },
   {
-    title: 'Points (read / write)',
-    tags: 'points icc configurator read write present value priority table',
-    body: `<p>A flat table of every point across devices — like an ICC configurator.
-      Shows value, units, and read/write access. Writing is disabled in preview
-      and will require confirmation once the gateway is connected.</p>`
+    title: 'Points — sensor mapping (manual / CSV)',
+    tags: 'points icc configurator read write present value priority table mapping csv excel import export bacnet object instance sensors adaptive',
+    body: `<p>The <b>Points</b> view maps each PAMS sensor to a BACnet object
+      (<code>objtype:instance</code>, e.g. <code>analog-input:2</code>). Enter them
+      by hand, or <b>Import CSV</b> / <b>Download template</b> to bulk-load from
+      Excel; <b>Export CSV</b> saves the current map.</p>
+      <ul>
+        <li><b>Save to Pi</b> writes the map live via the gateway — the BMS node
+          picks it up automatically, no restart.</li>
+        <li>Map all 14 if you like; only points that actually <b>read</b> are used.
+          Nothing is fabricated.</li>
+        <li>The ML and InfluxDB are <b>adaptive</b>: if 4 sensors report, 4 are
+          scored and stored; if 11, then 11 — automatically.</li>
+      </ul>
+      <p>Below the editor, live present-values appear for any discovered devices.</p>`
   },
   {
     title: 'Trends',
@@ -1138,6 +1156,145 @@ function renderHelp() {
 }
 
 // ---------------------------------------------------------------------------
+// Point mapping editor (BACnet object -> PAMS sensor), manual + CSV
+// ---------------------------------------------------------------------------
+const CORE_POINTS = ['temperature', 'door_status'];
+const EXTRA_POINTS = [
+  'evaporator_temp', 'return_air_temp', 'ambient_temp', 'condenser_temp',
+  'suction_pressure', 'discharge_pressure', 'superheat',
+  'compressor_current', 'humidity', 'setpoint',
+  'defrost_status', 'compressor_status'
+];
+const ALL_POINTS = [...CORE_POINTS, ...EXTRA_POINTS];
+const OBJ_RE = /^[A-Za-z][A-Za-z0-9-]*:\d+$/;
+let pointMap = {}; // name -> "objtype:instance"
+
+function setMapStatus(text, kind) {
+  const el = $('#mapStatus');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'map-status' + (kind ? ' ' + kind : '');
+}
+
+function renderMapTable() {
+  const box = $('#mapTable');
+  if (!box) return;
+  const row = (name) => {
+    const core = CORE_POINTS.includes(name);
+    const val = pointMap[name] || '';
+    const bad = val && !OBJ_RE.test(val) ? ' invalid' : '';
+    return `<div class="map-row${core ? ' core' : ''}">
+      <label class="map-name">${name}${core ? '<span class="map-core">core</span>' : ''}</label>
+      <input class="map-input${bad}" data-point="${name}" value="${escapeHtml(val)}"
+        spellcheck="false" placeholder="e.g. ${core ? (name === 'door_status' ? 'binary-input:1' : 'analog-input:1') : 'analog-input:2'}" />
+    </div>`;
+  };
+  box.innerHTML =
+    `<div class="map-group-lbl">Core points (always read)</div>` +
+    CORE_POINTS.map(row).join('') +
+    `<div class="map-group-lbl">Optional soft-sensors (used only when they read)</div>` +
+    EXTRA_POINTS.map(row).join('');
+  box.querySelectorAll('.map-input').forEach((inp) =>
+    inp.addEventListener('input', () => {
+      const v = inp.value.trim();
+      pointMap[inp.dataset.point] = v;
+      inp.classList.toggle('invalid', !!v && !OBJ_RE.test(v));
+    })
+  );
+}
+
+function collectMap() {
+  const out = {};
+  for (const name of ALL_POINTS) {
+    const v = (pointMap[name] || '').trim();
+    if (v) out[name] = v;
+  }
+  return out;
+}
+
+async function loadPointMap() {
+  renderMapTable();
+  setMapStatus('Loading…');
+  const r = await window.predator.gatewayGet('/api/points-map');
+  if (r && r.ok && r.data && r.data.mapping) {
+    pointMap = { ...r.data.mapping };
+    renderMapTable();
+    const n = Object.keys(pointMap).length;
+    setMapStatus(n ? `${n} points mapped` : 'No points mapped yet', n ? 'ok' : '');
+  } else {
+    setMapStatus('Gateway offline — you can still edit and export', 'warn');
+  }
+}
+
+async function savePointMap() {
+  const map = collectMap();
+  const invalid = Object.entries(map).filter(([, v]) => !OBJ_RE.test(v));
+  if (invalid.length) {
+    setMapStatus(`Fix ${invalid.length} invalid entr${invalid.length > 1 ? 'ies' : 'y'} (objtype:instance)`, 'warn');
+    return;
+  }
+  setMapStatus('Saving…');
+  const r = await window.predator.gatewayPost('/api/points-map', map);
+  if (r && r.ok && r.data && r.data.ok) {
+    setMapStatus(`Saved ${r.data.count} points to the Pi`, 'ok');
+  } else {
+    const err = (r && r.data && r.data.error) || (r && r.error) || 'gateway offline';
+    setMapStatus('Save failed: ' + err, 'warn');
+  }
+}
+
+function mapToCsv(map) {
+  const lines = ['sensor,object'];
+  for (const name of ALL_POINTS) lines.push(`${name},${map[name] || ''}`);
+  return lines.join('\r\n') + '\r\n';
+}
+
+function parseCsvToMap(text) {
+  const map = {};
+  const rows = String(text).split(/\r?\n/).filter((l) => l.trim());
+  for (const line of rows) {
+    const cells = line.split(',').map((c) => c.trim());
+    if (cells.length < 2) continue;
+    const name = cells[0].toLowerCase();
+    if (name === 'sensor' || name === 'name') continue; // header
+    if (!ALL_POINTS.includes(name)) continue;
+    const val = cells[1];
+    if (val) map[name] = val;
+  }
+  return map;
+}
+
+async function exportMapCsv() {
+  const res = await window.predator.saveTextFile('pams_points.csv', mapToCsv(collectMap()));
+  if (res && res.ok) setMapStatus('Exported ' + res.path, 'ok');
+  else if (res && res.canceled) setMapStatus('Export canceled');
+}
+
+async function exportMapTemplate() {
+  const blank = {};
+  const res = await window.predator.saveTextFile('pams_points_template.csv', mapToCsv(blank));
+  if (res && res.ok) setMapStatus('Template saved ' + res.path, 'ok');
+  else if (res && res.canceled) setMapStatus('Export canceled');
+}
+
+function importMapCsv(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const imported = parseCsvToMap(reader.result);
+    const n = Object.keys(imported).length;
+    if (!n) {
+      setMapStatus('No recognized sensors found in CSV', 'warn');
+      return;
+    }
+    pointMap = { ...pointMap, ...imported };
+    renderMapTable();
+    setMapStatus(`Imported ${n} points — review, then Save to Pi`, 'ok');
+  };
+  reader.onerror = () => setMapStatus('Could not read that file', 'warn');
+  reader.readAsText(file);
+}
+
+// ---------------------------------------------------------------------------
 // Terminal (real PTY via xterm.js)
 // ---------------------------------------------------------------------------
 let xterm = null;
@@ -1215,6 +1372,25 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('#connAdd').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') addConnHost();
   });
+
+  // Point mapping editor
+  const mapReloadBtn = $('#mapReload');
+  if (mapReloadBtn) mapReloadBtn.addEventListener('click', loadPointMap);
+  const mapSaveBtn = $('#mapSave');
+  if (mapSaveBtn) mapSaveBtn.addEventListener('click', savePointMap);
+  const mapExportBtn = $('#mapExport');
+  if (mapExportBtn) mapExportBtn.addEventListener('click', exportMapCsv);
+  const mapTemplateBtn = $('#mapTemplate');
+  if (mapTemplateBtn) mapTemplateBtn.addEventListener('click', exportMapTemplate);
+  const mapImportBtn = $('#mapImport');
+  const mapCsvFile = $('#mapCsvFile');
+  if (mapImportBtn && mapCsvFile) {
+    mapImportBtn.addEventListener('click', () => mapCsvFile.click());
+    mapCsvFile.addEventListener('change', () => {
+      if (mapCsvFile.files && mapCsvFile.files[0]) importMapCsv(mapCsvFile.files[0]);
+      mapCsvFile.value = '';
+    });
+  }
 
   initTerminal();
   const termClearBtn = $('#termClear');

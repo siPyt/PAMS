@@ -13,6 +13,11 @@ network — no internet required, no cloud, no telemetry.
   so **it changes nothing on the Pi**.
 - **Live gateway views** — Services, Devices, and Points fetch real status from a
   small read-only gateway on the Pi (`:8090`); only the **Demo** button is simulated.
+- **Point mapping editor** — the **Points** view maps each PAMS sensor to a BACnet
+  object (manually or via **CSV import/export**) and saves it live to the Pi, so
+  the ML and InfluxDB adapt to exactly the sensors that report.
+- **Predictive-maintenance dashboard** — each unit card leads with the **health
+  score** as the primary number; temperature is shown secondary.
 - **Real terminal** — a true interactive PowerShell PTY (via `node-pty` + xterm.js)
   built into the app. Run any command, use history/tab-completion, and
   `ssh admin@alpha-p` to deploy or diagnose straight from the cockpit.

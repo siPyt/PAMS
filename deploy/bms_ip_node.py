@@ -89,6 +89,37 @@ def _parse_extra_points(env_value):
 
 EXTRA_POINTS = _parse_extra_points(os.environ.get("PAMS_EXTRA_POINTS", ""))
 
+# Live mapping file (written by the Predator UI via the gateway). Merged with the
+# env points and reloaded automatically whenever it changes - no restart needed.
+POINTS_FILE = os.path.expanduser(os.environ.get("PAMS_POINTS_FILE", "~/pams_points.json"))
+_points_cache = {"mtime": None, "points": list(EXTRA_POINTS)}
+
+
+def current_extra_points():
+    try:
+        mtime = os.path.getmtime(POINTS_FILE) if os.path.exists(POINTS_FILE) else None
+    except OSError:
+        mtime = None
+    if mtime == _points_cache["mtime"]:
+        return _points_cache["points"]
+    merged = {name: (t, i) for name, t, i in EXTRA_POINTS}
+    if mtime is not None:
+        try:
+            with open(POINTS_FILE) as f:
+                data = json.load(f)
+            for name, obj in (data or {}).items():
+                if ":" in str(obj):
+                    t, i = str(obj).rsplit(":", 1)
+                    try:
+                        merged[str(name).strip()] = (t.strip(), int(i))
+                    except ValueError:
+                        continue
+        except Exception as e:  # noqa: BLE001
+            print(f"  points-map read warning: {e}")
+    _points_cache["mtime"] = mtime
+    _points_cache["points"] = [(n, t, i) for n, (t, i) in merged.items()]
+    return _points_cache["points"]
+
 
 # ----------------------------------------------------------------------------
 # MQTT
@@ -200,7 +231,8 @@ def poll_once():
         wrote = write_score(SCORE_OBJ, score)
 
     extras = {}
-    for name, obj_type, obj_inst in EXTRA_POINTS:
+    active_points = current_extra_points()
+    for name, obj_type, obj_inst in active_points:
         val = read_extra_point(obj_type, obj_inst)
         if val is not None:
             extras[name] = val
@@ -215,7 +247,7 @@ def poll_once():
     payload.update(extras)
     mqtt_client.publish(TOPIC, json.dumps(payload), qos=0)
 
-    extra_note = f"  +{len(extras)}/{len(EXTRA_POINTS)} sensors" if EXTRA_POINTS else ""
+    extra_note = f"  +{len(extras)}/{len(active_points)} sensors" if active_points else ""
     print(
         f"{UNIT_ID}  temp={round(live_temp, 2)}C  door={'OPEN' if door_open else 'closed'}  "
         f"score={round(score, 1)}  write={'ok' if wrote else ('skip' if not WRITE_ENABLE else 'FAIL')}"

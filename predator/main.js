@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -273,6 +273,41 @@ function gatewayGet(pathname) {
   });
 }
 
+function gatewayPost(pathname, payload) {
+  return new Promise((resolve) => {
+    const host = activeHost || config.hosts[0] || 'alpha-p.local';
+    const body = Buffer.from(JSON.stringify(payload || {}), 'utf-8');
+    const req = http.request(
+      {
+        host,
+        port: 8090,
+        path: pathname,
+        method: 'POST',
+        timeout: 5000,
+        headers: { 'Content-Type': 'application/json', 'Content-Length': body.length }
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => {
+          try {
+            resolve({ ok: res.statusCode < 400, host, status: res.statusCode, data: JSON.parse(data) });
+          } catch {
+            resolve({ ok: false, host, error: 'bad response' });
+          }
+        });
+      }
+    );
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ ok: false, host, error: 'timeout' });
+    });
+    req.on('error', (e) => resolve({ ok: false, host, error: String((e && e.message) || e) }));
+    req.write(body);
+    req.end();
+  });
+}
+
 // ---------------------------------------------------------------------------
 // In-app terminal — a real PTY (node-pty) rendered by xterm.js in the renderer.
 // ---------------------------------------------------------------------------
@@ -386,6 +421,21 @@ ipcMain.handle('net:probe', () => scanEndpoints());
 ipcMain.handle('net:scan', () => scanSubnet());
 ipcMain.handle('app:connectTo', (_event, host) => connectTo(host));
 ipcMain.handle('gateway:get', (_event, pathname) => gatewayGet(pathname));
+ipcMain.handle('gateway:post', (_event, args) => gatewayPost((args && args.path) || '', (args && args.body) || {}));
+ipcMain.handle('file:saveText', async (_event, args) => {
+  const { defaultName, text } = args || {};
+  const res = await dialog.showSaveDialog(win, {
+    defaultPath: defaultName || 'export.csv',
+    filters: [{ name: 'CSV', extensions: ['csv'] }, { name: 'All files', extensions: ['*'] }]
+  });
+  if (res.canceled || !res.filePath) return { ok: false, canceled: true };
+  try {
+    fs.writeFileSync(res.filePath, text || '', 'utf-8');
+    return { ok: true, path: res.filePath };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+});
 ipcMain.handle('term:start', () => {
   termStart();
   return true;

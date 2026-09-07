@@ -3,17 +3,21 @@
 PAMS Gateway — minimal, read-only HTTP API for the Predator app.
 
 Exposes REAL data that Predator's Services / Devices / Points views consume:
-  GET /api/health              -> liveness probe
-  GET /api/services            -> docker containers + systemd unit states
-  GET /api/devices             -> best-effort BACnet Who-Is discovery
-  GET /api/points?device=<id>  -> best-effort BACnet object reads for a device
+  GET  /api/health              -> liveness probe
+  GET  /api/services            -> docker containers + systemd unit states
+  GET  /api/devices             -> best-effort BACnet Who-Is discovery
+  GET  /api/points?device=<id>  -> best-effort BACnet object reads for a device
+  GET  /api/points-map          -> current BMS soft-sensor object mapping
+  POST /api/points-map          -> save the mapping (~/pams_points.json)
 
 Runs as the normal user (no root needed): it only reads `docker`/`systemctl`
-status and runs the bacnet-stack CLI tools. Stdlib only — no pip installs.
+status and runs the bacnet-stack CLI tools, and writes one JSON file in $HOME.
+Stdlib only — no pip installs.
 
 Start:   python3 ~/pams_gateway.py         (listens on :8090)
 Env:     PAMS_GATEWAY_PORT (default 8090)
          PAMS_BACNET_BIN   (default ~/bacnet-stack/bin)
+         PAMS_POINTS_FILE  (default ~/pams_points.json)
 """
 
 import json
@@ -26,7 +30,18 @@ from urllib.parse import urlparse, parse_qs
 
 PORT = int(os.environ.get("PAMS_GATEWAY_PORT", "8090"))
 BACNET_BIN = os.path.expanduser(os.environ.get("PAMS_BACNET_BIN", "~/bacnet-stack/bin"))
+POINTS_FILE = os.path.expanduser(os.environ.get("PAMS_POINTS_FILE", "~/pams_points.json"))
 SYSTEMD_UNITS = ["pams-ml", "pams-bms"]
+
+# Recognized soft-sensor channels (must match EXTRA_SENSOR_ORDER in pams_ml.py).
+KNOWN_POINTS = [
+    "temperature", "door_status",
+    "evaporator_temp", "return_air_temp", "ambient_temp", "condenser_temp",
+    "suction_pressure", "discharge_pressure", "superheat",
+    "compressor_current", "humidity", "setpoint",
+    "defrost_status", "compressor_status",
+]
+_OBJ_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*:\d+$")
 
 _cache = {}
 
@@ -112,15 +127,59 @@ def get_points(device):
     return {"points": points, "device": device, "ts": time.time()}
 
 
+def get_points_map():
+    mapping = {}
+    try:
+        if os.path.exists(POINTS_FILE):
+            with open(POINTS_FILE) as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                mapping = {str(k): str(v) for k, v in data.items()}
+    except Exception as e:  # noqa: BLE001
+        return {"mapping": {}, "note": f"read error: {e}", "file": POINTS_FILE, "ts": time.time()}
+    return {"mapping": mapping, "known": KNOWN_POINTS, "file": POINTS_FILE, "ts": time.time()}
+
+
+def save_points_map(data):
+    if not isinstance(data, dict):
+        return {"ok": False, "error": "body must be a JSON object of name -> 'objtype:instance'"}
+    clean = {}
+    for k, v in data.items():
+        name = str(k).strip()
+        val = str(v).strip()
+        if not name or not val:
+            continue
+        if not _OBJ_RE.match(val):
+            return {"ok": False, "error": f"'{name}': '{val}' must look like 'analog-input:2'"}
+        clean[name] = val
+    try:
+        tmp = POINTS_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(clean, f, indent=2)
+        os.replace(tmp, POINTS_FILE)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "mapping": clean, "count": len(clean), "file": POINTS_FILE, "ts": time.time()}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, obj):
         body = json.dumps(obj).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def do_OPTIONS(self):  # noqa: N802
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
 
     def do_GET(self):  # noqa: N802
         u = urlparse(self.path)
@@ -135,6 +194,26 @@ class Handler(BaseHTTPRequestHandler):
             elif u.path == "/api/points":
                 dev = (q.get("device") or [""])[0]
                 self._send(200, get_points(dev))
+            elif u.path == "/api/points-map":
+                self._send(200, get_points_map())
+            else:
+                self._send(404, {"error": "not found"})
+        except Exception as e:  # noqa: BLE001
+            self._send(500, {"error": str(e)})
+
+    def do_POST(self):  # noqa: N802
+        u = urlparse(self.path)
+        try:
+            if u.path == "/api/points-map":
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw.decode("utf-8")) if raw else {}
+                except json.JSONDecodeError as e:
+                    self._send(400, {"ok": False, "error": f"invalid JSON: {e}"})
+                    return
+                result = save_points_map(body)
+                self._send(200 if result.get("ok") else 400, result)
             else:
                 self._send(404, {"error": "not found"})
         except Exception as e:  # noqa: BLE001

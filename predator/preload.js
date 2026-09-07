@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('predator', {
   scanSubnet: () => ipcRenderer.invoke('net:scan'),
   connectTo: (host) => ipcRenderer.invoke('app:connectTo', host),
   gatewayGet: (pathname) => ipcRenderer.invoke('gateway:get', pathname),
+  gatewayPost: (pathname, body) => ipcRenderer.invoke('gateway:post', { path: pathname, body }),
+  saveTextFile: (defaultName, text) => ipcRenderer.invoke('file:saveText', { defaultName, text }),
   term: {
     start: () => ipcRenderer.invoke('term:start'),
     write: (data) => ipcRenderer.send('term:write', data),

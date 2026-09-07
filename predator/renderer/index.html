@@ -159,9 +159,44 @@
         <section class="view hidden" data-view="points">
           <div class="view-head">
             <h1>Points <span class="preview-tag">live</span></h1>
-            <p class="view-sub">Read / write BACnet points (ICC-style).</p>
+            <p class="view-sub">
+              Map BACnet objects to PAMS sensors, then read live values
+              (ICC-style).
+            </p>
           </div>
-          <div id="pointsPanel" class="panel"></div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Sensor point mapping</h2>
+              <p class="view-sub">
+                Enter each sensor's BACnet object as
+                <code>objtype:instance</code> (e.g.
+                <code>analog-input:2</code>). Only mapped points that actually
+                read are used — nothing is fabricated. Saves live to the Pi; the
+                BMS node picks up changes automatically.
+              </p>
+            </div>
+            <div class="map-actions">
+              <button id="mapReload" class="btn ghost sm">Reload</button>
+              <button id="mapImport" class="btn ghost sm">Import CSV…</button>
+              <button id="mapExport" class="btn ghost sm">Export CSV</button>
+              <button id="mapTemplate" class="btn ghost sm">
+                Download template
+              </button>
+              <span class="spacer"></span>
+              <span id="mapStatus" class="map-status"></span>
+              <button id="mapSave" class="btn primary sm">Save to Pi</button>
+            </div>
+            <input id="mapCsvFile" type="file" accept=".csv,text/csv" hidden />
+            <div id="mapTable" class="map-table"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Live values (discovered devices)</h2>
+            </div>
+            <div id="pointsPanel"></div>
+          </div>
         </section>
 
         <!-- Trends -->

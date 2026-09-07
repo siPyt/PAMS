@@ -37,6 +37,12 @@ TERMINAL (real shell)
     command, and use "ssh admin@alpha-p" to get a live shell on the Pi to
     deploy or diagnose - all from inside Predator.
 
+POINT MAPPING (Points view)
+---------------------------
+  - Map each freezer sensor to its BACnet object (objtype:instance) by hand or
+    by importing a CSV. Save to Pi writes it live; the ML and Grafana adapt to
+    exactly the sensors that report - map all 14 or just a few.
+
 DEMO MODE
 ---------
   - The "Demo" button (top-right) fills the UI with SIMULATED units so you can

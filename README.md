@@ -32,17 +32,29 @@ The Docker stack (MQTT, Node-RED, InfluxDB, Grafana) and the Python services run
 | Door status         | `binary-input:1`       | `binaryInput:1`     | read   |
 | PAMS health score   | `analog-value:50`      | `analogValue:2`     | write  |
 
-**Optional real soft-sensors** (read only when mapped via `PAMS_EXTRA_POINTS`; each
-flows into MQTT and the ML ingests it automatically as level + rate). Recognized
-names: `evaporator_temp`, `return_air_temp`, `ambient_temp`, `condenser_temp`,
-`suction_pressure`, `discharge_pressure`, `superheat`, `compressor_current`,
-`humidity`, `setpoint`, `defrost_status`, `compressor_status`. Nothing is
-fabricated — unmapped sensors are simply absent.
+**Optional real soft-sensors** (read only when mapped; each flows into MQTT and the
+ML ingests it automatically as level + rate). Recognized names: `evaporator_temp`,
+`return_air_temp`, `ambient_temp`, `condenser_temp`, `suction_pressure`,
+`discharge_pressure`, `superheat`, `compressor_current`, `humidity`, `setpoint`,
+`defrost_status`, `compressor_status`. Nothing is fabricated — unmapped sensors are
+simply absent, and mapped points that don't actually read are skipped.
+
+Map them **either way**:
+
+- **Predator UI (recommended):** the **Points** view has a mapping editor —
+  enter each object by hand or **Import CSV** from Excel, then **Save to Pi**. It
+  writes `~/pams_points.json` live through the gateway and the BMS node picks it up
+  automatically (no restart).
+- **Env file:** set `PAMS_EXTRA_POINTS` in `deploy/systemd/pams.env`.
 
 ```bash
-# in deploy/systemd/pams.env  (MS/TP uses dashed objtypes; IP uses camelCase)
+# deploy/systemd/pams.env  (MS/TP uses dashed objtypes; IP uses camelCase)
 PAMS_EXTRA_POINTS=evaporator_temp=analog-input:2,suction_pressure=analog-input:3,defrost_status=binary-input:2
 ```
+
+The whole chain is **adaptive**: if 4 sensors report, the ML scores on 4 and
+InfluxDB stores 4; if 11 report, 11 — automatically, with no config beyond the
+mapping.
 
 ## Machine learning
 
