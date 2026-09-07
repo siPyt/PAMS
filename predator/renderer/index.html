@@ -160,122 +160,160 @@
           <div class="view-head">
             <h1>Points <span class="preview-tag">live</span></h1>
             <p class="view-sub">
-              Map BACnet objects to PAMS sensors, then read live values
-              (ICC-style).
+              Find a BACnet device and start monitoring it — in two steps.
             </p>
           </div>
 
-          <div class="panel">
+          <!-- Step 1: discover -->
+          <div class="panel step-panel">
             <div class="panel-head">
-              <h2>What PAMS can access</h2>
+              <h2><span class="step-num">1</span> Find your devices</h2>
               <p class="view-sub">
-                What the Pi can physically reach and which protocols it can
-                speak. PAMS adapts discovery to whatever is present.
+                PAMS scans the network (and any wired RS-485 bus) for BACnet
+                devices. No IP address or setup needed — just click.
               </p>
             </div>
             <div class="map-actions">
-              <button id="capRefresh" class="btn ghost sm">Refresh</button>
+              <button id="easyDiscover" class="btn primary">
+                Discover devices
+              </button>
               <span class="spacer"></span>
-              <span id="capStatus" class="map-status"></span>
+              <span id="easyStatus" class="map-status"></span>
             </div>
-            <div id="capResults" class="cap-results"></div>
+            <div id="easyDevices" class="scan-results"></div>
           </div>
 
-          <div class="panel">
+          <!-- Step 2: choose points + start (revealed after picking a device) -->
+          <div class="panel step-panel hidden" id="easyStep2">
             <div class="panel-head">
-              <h2>Auto-discover from a BACnet device</h2>
-              <p class="view-sub">
-                Reads the device's object list (YABE-style) and suggests a
-                channel name for each point. Tick the ones you want and apply
-                them to the map below — review before saving. Needs the Pi on
-                the trunk.
+              <h2><span class="step-num">2</span> Choose what to monitor</h2>
+              <p class="view-sub" id="step2Sub">
+                These are the points the device reports. All are selected by
+                default — untick any you don't want, then start.
               </p>
             </div>
             <div class="map-actions">
-              <button id="discoverAllBtn" class="btn primary sm">
-                Discover everything (plug &amp; play)
-              </button>
-              <span class="spacer"></span>
-              <span id="discoverAllStatus" class="map-status"></span>
-            </div>
-            <div id="discoverAllResults" class="scan-results"></div>
-            <div class="map-actions">
-              <label class="xport-lbl">Or target one transport:</label>
-              <select
-                id="xport"
-                class="xport-sel"
-                aria-label="BACnet transport"
-              >
-                <option value="mstp">MS/TP (RS-485)</option>
-                <option value="bip">BACnet/IP (LAN)</option>
-              </select>
-              <button id="busScanBtn" class="btn ghost sm">
-                Find bus (auto-baud + Who-Is)
-              </button>
-              <input
-                id="scanTarget"
-                class="scan-device"
-                type="text"
-                spellcheck="false"
-                placeholder="Device IP for another subnet (optional, e.g. 10.1.2.3)"
-              />
-              <span class="spacer"></span>
-              <span id="busScanStatus" class="map-status"></span>
-            </div>
-            <div id="busScanResults" class="scan-results"></div>
-            <div class="map-actions">
-              <input
-                id="scanDevice"
-                class="scan-device"
-                type="text"
-                inputmode="numeric"
-                spellcheck="false"
-                placeholder="Device instance (e.g. 9050)"
-              />
-              <button id="scanBtn" class="btn primary sm">Scan device</button>
-              <button id="scanApply" class="btn ghost sm" disabled>
-                Apply selected
-              </button>
+              <button id="easySelAll" class="btn ghost sm">Select all</button>
+              <button id="easySelNone" class="btn ghost sm">None</button>
               <span class="spacer"></span>
               <span id="scanStatus" class="map-status"></span>
             </div>
             <div id="scanResults" class="scan-results"></div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-head">
-              <h2>Sensor point mapping</h2>
-              <p class="view-sub">
-                Each row maps a PAMS channel to a BACnet object
-                (<code>objtype:instance</code>, e.g.
-                <code>analog-input:2</code>). Only mapped points that actually
-                read are used — nothing is fabricated; the ML and InfluxDB adapt
-                to exactly what reports. Saves live to the Pi.
-              </p>
-            </div>
             <div class="map-actions">
-              <button id="mapReload" class="btn ghost sm">Reload</button>
-              <button id="mapAdd" class="btn ghost sm">+ Add point</button>
-              <button id="mapImport" class="btn ghost sm">Import CSV…</button>
-              <button id="mapExport" class="btn ghost sm">Export CSV</button>
-              <button id="mapExportIcc" class="btn ghost sm">
-                Export ICC/FLN CSV
-              </button>
-              <button id="mapTemplate" class="btn ghost sm">Template</button>
+              <span id="startStatus" class="map-status"></span>
               <span class="spacer"></span>
-              <span id="mapStatus" class="map-status"></span>
-              <button id="mapSave" class="btn primary sm">Save to Pi</button>
+              <button id="easyStart" class="btn primary">
+                Start monitoring
+              </button>
             </div>
-            <input id="mapCsvFile" type="file" accept=".csv,text/csv" hidden />
-            <div id="mapTable" class="map-table"></div>
           </div>
 
-          <div class="panel">
-            <div class="panel-head">
-              <h2>Live values (discovered devices)</h2>
+          <!-- Everything else, tucked away for power users -->
+          <details class="panel adv-panel">
+            <summary>
+              Advanced — manual scan, wired bus, point mapping &amp; export
+            </summary>
+
+            <div class="adv-body">
+              <div class="panel-head">
+                <h3>What PAMS can access</h3>
+              </div>
+              <div class="map-actions">
+                <button id="capRefresh" class="btn ghost sm">Refresh</button>
+                <span class="spacer"></span>
+                <span id="capStatus" class="map-status"></span>
+              </div>
+              <div id="capResults" class="cap-results"></div>
+
+              <div class="panel-head">
+                <h3>Manual / targeted discovery</h3>
+                <p class="view-sub">
+                  Pick a transport, scan a specific device instance, or reach a
+                  device on another subnet by IP.
+                </p>
+              </div>
+              <div class="map-actions">
+                <button id="discoverAllBtn" class="btn ghost sm">
+                  Discover everything (every link)
+                </button>
+                <span class="spacer"></span>
+                <span id="discoverAllStatus" class="map-status"></span>
+              </div>
+              <div id="discoverAllResults" class="scan-results"></div>
+              <div class="map-actions">
+                <label class="xport-lbl">Transport:</label>
+                <select
+                  id="xport"
+                  class="xport-sel"
+                  aria-label="BACnet transport"
+                >
+                  <option value="mstp">MS/TP (RS-485)</option>
+                  <option value="bip">BACnet/IP (LAN)</option>
+                </select>
+                <button id="busScanBtn" class="btn ghost sm">
+                  Find bus (auto-baud + Who-Is)
+                </button>
+                <input
+                  id="scanTarget"
+                  class="scan-device"
+                  type="text"
+                  spellcheck="false"
+                  placeholder="Device IP for another subnet (optional)"
+                />
+                <span class="spacer"></span>
+                <span id="busScanStatus" class="map-status"></span>
+              </div>
+              <div id="busScanResults" class="scan-results"></div>
+              <div class="map-actions">
+                <input
+                  id="scanDevice"
+                  class="scan-device"
+                  type="text"
+                  inputmode="numeric"
+                  spellcheck="false"
+                  placeholder="Device instance (e.g. 9050)"
+                />
+                <button id="scanBtn" class="btn ghost sm">Scan device</button>
+                <button id="scanApply" class="btn ghost sm" disabled>
+                  Apply selected
+                </button>
+              </div>
+
+              <div class="panel-head">
+                <h3>Sensor point mapping</h3>
+                <p class="view-sub">
+                  Each row maps a PAMS channel to a BACnet object
+                  (<code>objtype:instance</code>). Only points that actually
+                  read are used — nothing is fabricated. Saves live to the Pi.
+                </p>
+              </div>
+              <div class="map-actions">
+                <button id="mapReload" class="btn ghost sm">Reload</button>
+                <button id="mapAdd" class="btn ghost sm">+ Add point</button>
+                <button id="mapImport" class="btn ghost sm">Import CSV…</button>
+                <button id="mapExport" class="btn ghost sm">Export CSV</button>
+                <button id="mapExportIcc" class="btn ghost sm">
+                  Export ICC/FLN CSV
+                </button>
+                <button id="mapTemplate" class="btn ghost sm">Template</button>
+                <span class="spacer"></span>
+                <span id="mapStatus" class="map-status"></span>
+                <button id="mapSave" class="btn primary sm">Save to Pi</button>
+              </div>
+              <input
+                id="mapCsvFile"
+                type="file"
+                accept=".csv,text/csv"
+                hidden
+              />
+              <div id="mapTable" class="map-table"></div>
+
+              <div class="panel-head">
+                <h3>Live values (discovered devices)</h3>
+              </div>
+              <div id="pointsPanel"></div>
             </div>
-            <div id="pointsPanel"></div>
-          </div>
+          </details>
         </section>
 
         <!-- Trends -->

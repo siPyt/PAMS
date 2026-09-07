@@ -600,6 +600,15 @@ async function renderDevices() {
 
 async function renderPoints() {
   const panel = $('#pointsPanel');
+  if (!panel) return;
+  // Live values live inside the collapsed Advanced panel — only read them (a
+  // real BACnet Who-Is) when the user actually opens it, so the Points view
+  // stays instant.
+  const adv = document.querySelector('.adv-panel');
+  if (adv && !adv.open) {
+    panel.innerHTML = '<div class="preview-note">Open this section to read live present-values from discovered devices.</div>';
+    return;
+  }
   panel.innerHTML = '<div class="preview-note">Loading…</div>';
   const r = await window.predator.gatewayGet('/api/devices');
   if (!r || !r.ok) {
@@ -859,40 +868,30 @@ const DOCS = [
       <p>Tip: use the search box on this Help page to jump to any topic.</p>`
   },
   {
-    title: 'Full setup — discover & map a device (step by step)',
-    tags: 'setup commission device map points discover scan bus baud whois workflow how to bacnet mstp ip step by step tutorial guide configure',
-    body: `<p>This is the end-to-end workflow to get a real BACnet device into PAMS.
-      Open the <b>Points</b> view and work top to bottom:</p>
+    title: 'Full setup — discover & monitor a device (step by step)',
+    tags: 'setup commission device map points discover scan bus baud whois workflow how to bacnet mstp ip step by step tutorial guide configure monitor',
+    body: `<p>Getting a real BACnet device into PAMS takes two clicks. Open the
+      <b>Points</b> view:</p>
       <ol>
-        <li><b>See what PAMS can reach.</b> The <b>What PAMS can access</b> panel
-          lists the Pi's serial ports, networks, and which protocols are available
-          (BACnet MS/TP and/or BACnet/IP). Press <b>Refresh</b> if you just plugged
-          something in.</li>
-        <li><b>Pick the transport.</b> In <b>Auto-discover</b>, set <b>Transport</b>
-          to <b>MS/TP</b> (RS-485 trunk) or <b>BACnet/IP</b> (LAN).</li>
-        <li><b>Find the device.</b>
-          <ul>
-            <li>MS/TP: click <b>Find bus</b> — PAMS sweeps the baud rates, sends
-              Who-Is, saves the working baud, and lists the devices it finds.</li>
-            <li>BACnet/IP: click <b>Find devices</b> — PAMS broadcasts a Who-Is on
-              the LAN and lists responders.</li>
-          </ul>
-          Click <b>Scan</b> next to a discovered device (or type its instance number
-          into the box and press <b>Scan device</b>).</li>
-        <li><b>Review the objects.</b> The scan lists every object with its BACnet
-          name, present value, and engineering units, plus a suggested PAMS channel
-          name. Untick anything you don't want; rename channels if you like.</li>
-        <li><b>Apply.</b> Click <b>Apply selected</b> — the chosen points drop into
-          the mapping table below.</li>
-        <li><b>Fine-tune (optional).</b> In <b>Sensor point mapping</b> you can edit
-          any object (<code>objtype:instance</code>), rename a channel, <b>+ Add
-          point</b>, remove rows, or <b>Import CSV</b> from Excel.</li>
-        <li><b>Save to Pi.</b> Click <b>Save to Pi</b>. The BMS node picks up the new
-          map automatically — no restart. Only points that actually read are used;
-          the ML and InfluxDB adapt to exactly what reports.</li>
+        <li><b>Step 1 — Find your devices.</b> Click <b>Discover devices</b>. PAMS
+          scans the network (and any wired RS-485 bus) and lists every BACnet
+          device it finds. No IP address or setup needed.</li>
+        <li><b>Pick a device.</b> Click the device you want. PAMS reads all of its
+          points (names, live values, units) and opens <b>Step 2</b>.</li>
+        <li><b>Step 2 — Choose what to monitor.</b> Every point is ticked by
+          default. Untick anything you don't want (or use <b>Select all</b> /
+          <b>None</b>). Rename a channel if you like.</li>
+        <li><b>Start monitoring.</b> Click <b>Start monitoring</b>. PAMS saves the
+          points to the Pi and — for BACnet/IP devices — immediately begins
+          streaming live, scored data to the <b>Dashboard</b> (the health baseline
+          builds over about 5 minutes).</li>
       </ol>
-      <p>That's it — data now flows into the ML, InfluxDB/Grafana, and the Dashboard.
-      Re-open Points anytime to adjust the mapping.</p>`
+      <p>That's it. Only points that actually read are used — nothing is
+      fabricated; the ML and InfluxDB adapt to exactly what reports.</p>
+      <p><b>Need more control?</b> Open <b>Advanced</b> at the bottom of Points for
+      manual device-instance scans, choosing a specific transport, reaching a
+      device on another subnet by IP, the full mapping table, and CSV / ICC-FLN
+      export.</p>`
   },
   {
     title: 'What PAMS can access (capabilities)',
@@ -962,28 +961,24 @@ const DOCS = [
       <b>Points → Find bus</b> to auto-detect the baud first.</p>`
   },
   {
-    title: 'Points — auto-discover & sensor mapping',
-    tags: 'points icc configurator read write present value mapping csv excel import export bacnet object instance sensors adaptive discover yabe scan device fln siemens chiller',
-    body: `<p>The <b>Points</b> view discovers and maps a device's BACnet objects to
-      PAMS channels.</p>
-      <ul>
-        <li><b>Find bus</b> — auto-detects the MS/TP <b>baud rate</b> by sending
-          Who-Is at each common rate, then lists the devices it finds; click one
-          to scan it. The winning baud is saved on the Pi.</li>
-        <li><b>Auto-discover</b> — enter a device instance and <b>Scan device</b>.
-          Predator reads the object list (YABE-style) and suggests a channel name
-          for each point; tick the ones you want and <b>Apply selected</b>.</li>
-        <li><b>Manual / CSV</b> — add rows by hand, or <b>Import CSV</b> from Excel
-          (accepts the ICC/FLN column layout too).</li>
-        <li><b>Save to Pi</b> writes the map live via the gateway — the BMS node
-          picks it up automatically, no restart.</li>
-        <li><b>Export ICC/FLN CSV</b> — produces the ICC Mirus mapping (device,
-          object, FLN type, point number, database address) to bridge onto the
-          Siemens FLN.</li>
-      </ul>
+    title: 'Points — discover & monitor',
+    tags: 'points icc configurator read write present value mapping csv excel import export bacnet object instance sensors adaptive discover yabe scan device fln siemens chiller monitor two step',
+    body: `<p>The <b>Points</b> view is a simple two-step flow:</p>
+      <ol>
+        <li><b>Discover devices</b> — one click finds every BACnet device on the
+          network (and any wired RS-485 bus). Click a device to read its points.</li>
+        <li><b>Choose what to monitor</b> — points are pre-ticked; adjust, then
+          <b>Start monitoring</b>. BACnet/IP devices start streaming live, scored
+          data to the Dashboard right away.</li>
+      </ol>
       <p>Channels are <b>arbitrary</b> — a chiller's dozens of real object names all
       flow through. Only points that actually read are used; the ML and InfluxDB
-      adapt to exactly what reports. Nothing is fabricated.</p>`
+      adapt to exactly what reports. Nothing is fabricated.</p>
+      <p><b>Advanced</b> (bottom of the view) holds the power tools: what PAMS can
+      access, a manual device-instance scan, transport selection, cross-subnet IP
+      targeting, the editable mapping table, live present-values, and
+      <b>Export ICC/FLN CSV</b> (the ICC Mirus mapping to bridge onto a Siemens
+      FLN).</p>`
   },
   {
     title: 'Trends',
@@ -1590,9 +1585,10 @@ async function scanDevice(ctx) {
     scanObjects = r.data.objects.map((o) => ({ ...o, _pick: true, _chan: o.suggest || safeName(o.name) }));
     lastScan = { device: dev, datalink: (ctx && ctx.datalink) || currentDatalink() };
     renderScanResults();
+    if (scanObjects.length) revealStep2();
     if (applyBtn) applyBtn.disabled = scanObjects.length === 0;
     setScanStatus(
-      scanObjects.length ? `Found ${scanObjects.length} objects — review and Apply` : (r.data.note || 'No objects found'),
+      scanObjects.length ? `Found ${scanObjects.length} points on device ${dev} — pick what to monitor below` : (r.data.note || 'No objects found'),
       scanObjects.length ? 'ok' : 'warn'
     );
   } else {
@@ -1672,6 +1668,146 @@ function applyScanSelection() {
   renderMapTable();
   setScanStatus(`Applied ${picked.length} points to the map — review, then Save to Pi`, 'ok');
   setMapStatus(`${picked.length} discovered points added below`, 'ok');
+}
+
+// ----- Simple two-step flow: Discover -> Choose & Start --------------------
+let easyDevices = []; // [{ instance, datalink, iface, baud, where }]
+
+function setEasyStatus(text, kind) {
+  const el = $('#easyStatus');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'map-status' + (kind ? ' ' + kind : '');
+}
+
+function setStartStatus(text, kind) {
+  const el = $('#startStatus');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'map-status' + (kind ? ' ' + kind : '');
+}
+
+function addEasyDevice(d) {
+  if (d.instance == null) return;
+  const key = d.instance + '/' + d.datalink;
+  if (easyDevices.some((x) => x.instance + '/' + x.datalink === key)) return;
+  easyDevices.push(d);
+}
+
+function renderEasyDevices() {
+  const box = $('#easyDevices');
+  if (!box) return;
+  if (!easyDevices.length) {
+    box.innerHTML = '';
+    return;
+  }
+  box.innerHTML = easyDevices
+    .map(
+      (d, i) => `<button class="easy-dev" data-idx="${i}">
+        <span class="easy-dev-id">Device ${d.instance}</span>
+        <span class="easy-dev-where">${escapeHtml(d.where || '')}</span>
+        <span class="easy-dev-go">Choose points →</span>
+      </button>`
+    )
+    .join('');
+  box.querySelectorAll('.easy-dev').forEach((b) =>
+    b.addEventListener('click', () => easyPick(easyDevices[+b.dataset.idx]))
+  );
+}
+
+async function easyDiscover() {
+  const btn = $('#easyDiscover');
+  if (btn) btn.disabled = true;
+  easyDevices = [];
+  renderEasyDevices();
+  setEasyStatus('Looking for devices on the network…');
+  // Phase 1: fast BACnet/IP Who-Is (the common case) — show results right away.
+  const ip = await window.predator.gatewayGet('/api/ip-scan', 30000);
+  if (ip && ip.ok && ip.data && Array.isArray(ip.data.devices)) {
+    for (const d of ip.data.devices) {
+      addEasyDevice({ instance: d.instance, datalink: 'bip', iface: null, where: 'On the network (BACnet/IP)' });
+    }
+  }
+  renderEasyDevices();
+  setEasyStatus(
+    easyDevices.length
+      ? `Found ${easyDevices.length} on the network — also checking the wired bus…`
+      : 'Nothing on the network yet — checking the wired RS-485 bus…'
+  );
+  // Phase 2: full sweep (serial buses + IP), merge in anything new.
+  const all = await window.predator.gatewayGet('/api/discover-all', 240000);
+  if (all && all.ok && all.data && Array.isArray(all.data.devices)) {
+    for (const d of all.data.devices) {
+      const where = d.datalink === 'mstp'
+        ? `Wired RS-485${d.iface ? ' · ' + d.iface : ''}${d.baud ? ' @ ' + d.baud : ''}`
+        : 'On the network (BACnet/IP)';
+      addEasyDevice({ instance: d.instance, datalink: d.datalink, iface: d.iface, baud: d.baud, where });
+    }
+  }
+  renderEasyDevices();
+  setEasyStatus(
+    easyDevices.length
+      ? `Found ${easyDevices.length} device${easyDevices.length === 1 ? '' : 's'}. Click one to choose points.`
+      : 'No BACnet devices found. Check the device is powered on and on the same network as the Pi.',
+    easyDevices.length ? 'ok' : 'warn'
+  );
+  if (btn) btn.disabled = false;
+}
+
+function revealStep2() {
+  const s = $('#easyStep2');
+  if (s) s.classList.remove('hidden');
+}
+
+async function easyPick(dev) {
+  const inp = $('#scanDevice');
+  if (inp) inp.value = dev.instance;
+  const sel = $('#xport');
+  if (sel) { sel.value = dev.datalink; updateBusBtnLabel(); }
+  revealStep2();
+  setStartStatus('');
+  setScanStatus('Reading points from device ' + dev.instance + '…');
+  const s2 = $('#easyStep2');
+  if (s2) s2.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  await scanDevice({ datalink: dev.datalink, iface: dev.iface, baud: dev.baud });
+}
+
+async function easyStart() {
+  const picked = scanObjects.filter((o) => o._pick && o._chan && OBJ_RE.test(o.object));
+  if (!picked.length) {
+    setStartStatus('Tick at least one point first', 'warn');
+    return;
+  }
+  for (const o of picked) upsertEntry(o._chan, o.object);
+  renderMapTable();
+  const btn = $('#easyStart');
+  if (btn) btn.disabled = true;
+  setStartStatus('Saving points to the Pi…');
+  const r = await window.predator.gatewayPost('/api/points-map', collectMap());
+  if (!(r && r.ok && r.data && r.data.ok)) {
+    setStartStatus('Save failed: ' + ((r && r.data && r.data.error) || (r && r.error) || 'gateway offline'), 'warn');
+    if (btn) btn.disabled = false;
+    return;
+  }
+  if (lastScan && lastScan.datalink === 'bip' && lastScan.device) {
+    setStartStatus('Starting live monitoring…');
+    const m = await window.predator.gatewayPost('/api/monitor', {
+      unit_id: 'DEV-' + lastScan.device, device: lastScan.device, datalink: 'bip'
+    });
+    if (m && m.ok && m.data && m.data.ok) {
+      setStartStatus('✓ Monitoring device ' + lastScan.device + ' — open the Dashboard (baseline builds ~5 min).', 'ok');
+    } else {
+      setStartStatus('Saved, but monitoring did not start: ' + ((m && m.data && m.data.error) || 'gateway'), 'warn');
+    }
+  } else {
+    setStartStatus('✓ Saved ' + r.data.count + ' points. Wired MS/TP devices are read by the on-Pi BMS node.', 'ok');
+  }
+  if (btn) btn.disabled = false;
+}
+
+function easySelectAll(on) {
+  for (const o of scanObjects) o._pick = on;
+  renderScanResults();
 }
 
 // ----- Capabilities (what PAMS can access) ---------------------------------
@@ -1972,6 +2108,17 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (scanDeviceInput) scanDeviceInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') scanDevice();
   });
+  // Simple two-step flow.
+  const easyDiscoverBtn = $('#easyDiscover');
+  if (easyDiscoverBtn) easyDiscoverBtn.addEventListener('click', easyDiscover);
+  const easyStartBtn = $('#easyStart');
+  if (easyStartBtn) easyStartBtn.addEventListener('click', easyStart);
+  const easySelAllBtn = $('#easySelAll');
+  if (easySelAllBtn) easySelAllBtn.addEventListener('click', () => easySelectAll(true));
+  const easySelNoneBtn = $('#easySelNone');
+  if (easySelNoneBtn) easySelNoneBtn.addEventListener('click', () => easySelectAll(false));
+  const advPanel = document.querySelector('.adv-panel');
+  if (advPanel) advPanel.addEventListener('toggle', () => { if (advPanel.open) renderPoints(); });
 
   initTerminal();
   const termClearBtn = $('#termClear');
