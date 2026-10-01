@@ -3,7 +3,8 @@
 PAMS Gateway — minimal, read-only HTTP API for the Predator app.
 
 Exposes REAL data that Predator's Services / Devices / Points views consume:
-  GET  /api/health              -> liveness probe
+  GET  /api/health              -> liveness probe + identity signature (service/host/ips)
+  GET  /api/power               -> power/undervoltage + boot history (pams_watchdog.py)
   GET  /api/services            -> docker containers + systemd unit states
   GET  /api/capabilities        -> transports/interfaces PAMS can reach + protocols
   GET  /api/devices             -> best-effort BACnet Who-Is discovery
@@ -255,6 +256,83 @@ def run_ip_helper(args, timeout=20):
             except json.JSONDecodeError:
                 return None
     return None
+
+
+HEALTH_LOG = os.path.expanduser(os.environ.get("PAMS_HEALTH_LOG", "~/pams_health.jsonl"))
+HEALTH_HB = os.path.expanduser(os.environ.get("PAMS_HEALTH_HB", "~/pams_watchdog_hb.json"))
+
+
+def _host_ips():
+    ips = []
+    rc, so, _ = run(["hostname", "-I"], timeout=4)
+    if rc == 0 and so:
+        ips = [x for x in so.split() if ":" not in x]  # IPv4 only
+    return ips
+
+
+def get_identity():
+    """A signature so a client sweeping a subnet can positively recognize this
+    Pi as the PAMS host (rather than any device with an open port)."""
+    rc, host, _ = run(["hostname"], timeout=4)
+    return {
+        "service": "pams-gateway",
+        "ok": True,
+        "host": host or "",
+        "ips": _host_ips(),
+        "ts": time.time(),
+    }
+
+
+def get_power():
+    """Current power health + recent boot/undervoltage history from the
+    watchdog (pams_watchdog.py). Lets Predator show 'is this Pi dropping out?'."""
+    current = None
+    raw = run(["vcgencmd", "get_throttled"], timeout=4)[1]
+    try:
+        val = int(raw.split("=")[1], 16)
+        bits = {0: "undervoltage_now", 1: "arm_freq_capped_now", 2: "throttled_now",
+                3: "soft_temp_limit_now", 16: "undervoltage_occurred",
+                17: "arm_freq_capped_occurred", 18: "throttled_occurred",
+                19: "soft_temp_limit_occurred"}
+        current = {"raw": hex(val),
+                   "flags": [n for b, n in bits.items() if val & (1 << b)]}
+    except Exception:  # noqa: BLE001
+        pass
+    hb = None
+    try:
+        with open(HEALTH_HB) as f:
+            hb = json.load(f)
+    except Exception:  # noqa: BLE001
+        pass
+    # Tail the JSONL for the last boots and throttle events.
+    events, boots, unclean = [], 0, 0
+    try:
+        with open(HEALTH_LOG) as f:
+            lines = f.readlines()[-400:]
+        for ln in lines:
+            try:
+                rec = json.loads(ln)
+            except Exception:  # noqa: BLE001
+                continue
+            ev = rec.get("event")
+            if ev == "boot":
+                boots += 1
+                if rec.get("unclean_previous_shutdown"):
+                    unclean += 1
+            if ev in ("boot", "throttle_change"):
+                events.append(rec)
+    except Exception:  # noqa: BLE001
+        pass
+    watchdog_up = bool(hb and (time.time() - hb.get("ts", 0)) < 180)
+    return {
+        "current_throttle": current,
+        "heartbeat": hb,
+        "watchdog_running": watchdog_up,
+        "boots_seen": boots,
+        "unclean_power_losses": unclean,
+        "events": events[-25:],
+        "ts": time.time(),
+    }
 
 
 def get_services():
@@ -595,7 +673,9 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         try:
             if u.path == "/api/health":
-                self._send(200, {"ok": True, "ts": time.time()})
+                self._send(200, get_identity())
+            elif u.path == "/api/power":
+                self._send(200, cached("power", 3, get_power))
             elif u.path == "/api/services":
                 self._send(200, cached("services", 4, get_services))
             elif u.path == "/api/capabilities":

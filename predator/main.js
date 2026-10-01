@@ -103,6 +103,64 @@ async function discover() {
     const ok = await probe(host, config.mqttPort);
     if (ok) return host;
   }
+  // None of the known hosts answered (e.g. a corporate network where mDNS is
+  // blocked and DHCP gave the Pi a new IP). Fall back to sweeping the local
+  // subnet for the PAMS gateway and positively identifying it.
+  const found = await discoverBySubnet();
+  if (found) {
+    // Remember it so next launch connects instantly.
+    const hosts = config.hosts.filter((h) => h !== found);
+    hosts.unshift(found);
+    saveConfig({ hosts });
+    return found;
+  }
+  return null;
+}
+
+// GET http://host:8090/api/health and confirm it's the PAMS gateway (not just
+// any device with a port open). Returns the host on a positive match.
+function isPamsGateway(host, timeout = 1200) {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { host, port: 8090, path: '/api/health', timeout },
+      (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(data).service === 'pams-gateway');
+          } catch {
+            resolve(false);
+          }
+        });
+      }
+    );
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.on('error', () => resolve(false));
+  });
+}
+
+// Sweep every local /24 for the gateway port, then verify the PAMS signature.
+// This finds the Pi on any network without mDNS or a known IP.
+async function discoverBySubnet() {
+  send('status', { state: 'scanning', hosts: config.hosts, activeHost: null });
+  for (const base of localSubnets()) {
+    const candidates = [];
+    for (let i = 1; i <= 254; i++) candidates.push(`${base}.${i}`);
+    for (let i = 0; i < candidates.length; i += 64) {
+      const chunk = candidates.slice(i, i + 64);
+      // eslint-disable-next-line no-await-in-loop
+      const open = await Promise.all(chunk.map((h) => probe(h, 8090, 350)));
+      const hits = chunk.filter((_, j) => open[j]);
+      for (const h of hits) {
+        // eslint-disable-next-line no-await-in-loop
+        if (await isPamsGateway(h)) return h;
+      }
+    }
+  }
   return null;
 }
 

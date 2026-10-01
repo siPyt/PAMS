@@ -1,44 +1,44 @@
 ================================================================================
-[2026-09-07T16:01:55.135Z] AI-Ley Extension Session Started
-[2026-09-07T16:01:55.135Z] Workspace: c:\Users\cfree\OneDrive\Desktop\alphaP
-[2026-09-07T16:01:55.135Z] Log File: c:\Users\cfree\OneDrive\Desktop\alphaP\ai-ley.log
+[2026-10-01T16:17:12.349Z] AI-Ley Extension Session Started
+[2026-10-01T16:17:12.349Z] Workspace: c:\Users\cfree\OneDrive\Desktop\alphaP
+[2026-10-01T16:17:12.349Z] Log File: c:\Users\cfree\OneDrive\Desktop\alphaP\ai-ley.log
 ================================================================================
-[2026-09-07T16:01:55.137Z] Logging initialized successfully
-[2026-09-07T16:01:55.137Z] 
+[2026-10-01T16:17:12.351Z] Logging initialized successfully
+[2026-10-01T16:17:12.351Z] 
 ================================================================================
-[2026-09-07T16:01:55.138Z] Processing workspace: c:\Users\cfree\OneDrive\Desktop\alphaP
-[2026-09-07T16:01:55.138Z] Project name: alphaP
-[2026-09-07T16:01:55.138Z] Configuration - Cache Directory: .cache/ai-ley
-[2026-09-07T16:01:55.139Z] Configuration - Auto-init New Projects: false
-[2026-09-07T16:01:55.139Z] Configuration - Auto-init Existing Projects: false
-[2026-09-07T16:01:55.139Z] Configuration - Project Pattern: .*
-[2026-09-07T16:01:55.541Z] Is parent ai-ley repository: false
-[2026-09-07T16:01:55.542Z] === shouldAutoInitialize START ===
-[2026-09-07T16:01:55.542Z] Workspace: c:\Users\cfree\OneDrive\Desktop\alphaP
-[2026-09-07T16:01:55.542Z] Project Name: alphaP
-[2026-09-07T16:01:55.543Z] Cache directory check: c:\Users\cfree\OneDrive\Desktop\alphaP\.cache\ai-ley - Exists: true
-[2026-09-07T16:01:55.544Z] Is Initialized (.ai-ley exists): true
-[2026-09-07T16:01:55.544Z] Has Cache: true
-[2026-09-07T16:01:55.545Z] Auto-init for existing projects: false
-[2026-09-07T16:01:55.545Z] ✗ SHOULD NOT INITIALIZE: Existing project but auto-init disabled
-[2026-09-07T16:01:55.545Z] === shouldAutoInitialize END ===
-[2026-09-07T16:01:55.545Z] Should auto-initialize: false
-[2026-09-07T16:01:55.546Z] === initializeManagers START ===
-[2026-09-07T16:01:55.546Z] Force initial sync: false
-[2026-09-07T16:01:55.546Z] Repository URL: https://github.com/armoin2018/ai-ley.git
-[2026-09-07T16:01:55.547Z] Repository Branch: main
-[2026-09-07T16:01:55.547Z] Cache Directory (configured): .cache/ai-ley
-[2026-09-07T16:01:55.548Z] Cache Path (resolved): c:\Users\cfree\OneDrive\Desktop\alphaP\.cache\ai-ley
-[2026-09-07T16:01:55.548Z] Cache exists: true
-[2026-09-07T16:01:55.550Z] Managers initialized
-[2026-09-07T16:01:55.551Z] Update scheduler started
-[2026-09-07T16:01:55.552Z] === initializeManagers END ===
-[2026-09-07T16:01:55.553Z] AI-Ley managers initialized successfully
-[2026-09-07T16:01:55.553Z] Performing immediate cache check on activation
-[2026-09-07T16:01:55.554Z] 
+[2026-10-01T16:17:12.351Z] Processing workspace: c:\Users\cfree\OneDrive\Desktop\alphaP
+[2026-10-01T16:17:12.352Z] Project name: alphaP
+[2026-10-01T16:17:12.352Z] Configuration - Cache Directory: .cache/ai-ley
+[2026-10-01T16:17:12.352Z] Configuration - Auto-init New Projects: false
+[2026-10-01T16:17:12.353Z] Configuration - Auto-init Existing Projects: false
+[2026-10-01T16:17:12.353Z] Configuration - Project Pattern: .*
+[2026-10-01T16:17:13.120Z] Is parent ai-ley repository: false
+[2026-10-01T16:17:13.120Z] === shouldAutoInitialize START ===
+[2026-10-01T16:17:13.120Z] Workspace: c:\Users\cfree\OneDrive\Desktop\alphaP
+[2026-10-01T16:17:13.121Z] Project Name: alphaP
+[2026-10-01T16:17:13.121Z] Cache directory check: c:\Users\cfree\OneDrive\Desktop\alphaP\.cache\ai-ley - Exists: true
+[2026-10-01T16:17:13.122Z] Is Initialized (.ai-ley exists): true
+[2026-10-01T16:17:13.122Z] Has Cache: true
+[2026-10-01T16:17:13.122Z] Auto-init for existing projects: false
+[2026-10-01T16:17:13.123Z] ✗ SHOULD NOT INITIALIZE: Existing project but auto-init disabled
+[2026-10-01T16:17:13.123Z] === shouldAutoInitialize END ===
+[2026-10-01T16:17:13.123Z] Should auto-initialize: false
+[2026-10-01T16:17:13.124Z] === initializeManagers START ===
+[2026-10-01T16:17:13.124Z] Force initial sync: false
+[2026-10-01T16:17:13.125Z] Repository URL: https://github.com/armoin2018/ai-ley.git
+[2026-10-01T16:17:13.126Z] Repository Branch: main
+[2026-10-01T16:17:13.127Z] Cache Directory (configured): .cache/ai-ley
+[2026-10-01T16:17:13.127Z] Cache Path (resolved): c:\Users\cfree\OneDrive\Desktop\alphaP\.cache\ai-ley
+[2026-10-01T16:17:13.127Z] Cache exists: true
+[2026-10-01T16:17:13.129Z] Managers initialized
+[2026-10-01T16:17:13.131Z] Update scheduler started
+[2026-10-01T16:17:13.131Z] === initializeManagers END ===
+[2026-10-01T16:17:13.132Z] AI-Ley managers initialized successfully
+[2026-10-01T16:17:13.132Z] Performing immediate cache check on activation
+[2026-10-01T16:17:13.133Z] 
 Checking workspace: c:\Users\cfree\OneDrive\Desktop\alphaP
-[2026-09-07T16:01:55.554Z] Project Name: alphaP
-[2026-09-07T16:01:55.718Z] Is parent repository: false
-[2026-09-07T16:01:55.718Z] Auto-init for existing projects: false
-[2026-09-07T16:01:55.719Z] Auto-init for existing projects is disabled
-[2026-09-07T16:01:55.719Z] Finished processing workspace: c:\Users\cfree\OneDrive\Desktop\alphaP
+[2026-10-01T16:17:13.134Z] Project Name: alphaP
+[2026-10-01T16:17:13.301Z] Is parent repository: false
+[2026-10-01T16:17:13.301Z] Auto-init for existing projects: false
+[2026-10-01T16:17:13.302Z] Auto-init for existing projects is disabled
+[2026-10-01T16:17:13.302Z] Finished processing workspace: c:\Users\cfree\OneDrive\Desktop\alphaP

@@ -105,8 +105,8 @@ function renderStatus() {
     return;
   }
   const s = state.status || {};
-  // 'searching' shares the amber pulsing look with 'connecting'.
-  const cls = s.state === 'searching' ? 'connecting' : s.state || '';
+  // 'searching'/'scanning' share the amber pulsing look with 'connecting'.
+  const cls = s.state === 'searching' || s.state === 'scanning' ? 'connecting' : s.state || '';
   el.className = `status ${cls}`;
 
   const active = s.activeHost || '';
@@ -116,6 +116,7 @@ function renderStatus() {
       connected: `connected · ${active}`,
       connecting: `connecting · ${active}…`,
       searching: `searching USB / Ethernet…`,
+      scanning: `scanning network for PAMS…`,
       disconnected: `disconnected`,
       error: `error`
     }[s.state] || 'searching…';
