@@ -5,6 +5,7 @@ PAMS Gateway — minimal, read-only HTTP API for the Predator app.
 Exposes REAL data that Predator's Services / Devices / Points views consume:
   GET  /api/health              -> liveness probe + identity signature (service/host/ips)
   GET  /api/power               -> power/undervoltage + boot history (pams_watchdog.py)
+  GET  /api/selftest            -> one-call site health (containers, mqtt, influx, disk, data)
   GET  /api/services            -> docker containers + systemd unit states
   GET  /api/capabilities        -> transports/interfaces PAMS can reach + protocols
   GET  /api/devices             -> best-effort BACnet Who-Is discovery
@@ -30,10 +31,13 @@ Env:     PAMS_GATEWAY_PORT (default 8090)
 import json
 import os
 import re
+import shutil
+import socket
 import subprocess
 import time
 import contextlib
 import configparser
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -42,6 +46,20 @@ BACNET_BIN = os.path.expanduser(os.environ.get("PAMS_BACNET_BIN", "~/bacnet-stac
 POINTS_FILE = os.path.expanduser(os.environ.get("PAMS_POINTS_FILE", "~/pams_points.json"))
 MSTP_CONF = os.path.expanduser(os.environ.get("PAMS_CONFIG", "~/pams_mstp.conf"))
 SYSTEMD_UNITS = ["pams-ml", "pams-bms"]
+
+# /api/selftest knobs.
+EXPECTED_CONTAINERS = [c for c in os.environ.get(
+    "PAMS_EXPECTED_CONTAINERS",
+    "field-mqtt,field-nodered,field-influxdb,field-grafana").split(",") if c]
+MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
+INFLUX_URL = os.environ.get("PAMS_INFLUX_URL", "http://localhost:8086/health")
+# Services that must be active for the site to score data. Others (e.g. the MS/TP
+# pams-bms at an IP-only site) are reported as warnings, not critical failures.
+CRITICAL_SERVICES = {c for c in os.environ.get("PAMS_CRITICAL_SERVICES", "pams-ml").split(",") if c}
+LAST_SEEN_FILE = os.path.expanduser(os.environ.get("PAMS_LAST_SEEN_FILE", "~/pams_last_seen.json"))
+STALE_SECONDS = float(os.environ.get("PAMS_STALE_SECONDS", "60"))
+DISK_MIN_FREE_PCT = float(os.environ.get("PAMS_DISK_MIN_FREE_PCT", "10"))
 
 # BACnet/IP is handled by a bacpypes helper (venv python) because the bundled
 # bacnet-stack CLI tools are compiled MS/TP-only. See pams_bacnet_ip.py.
@@ -283,6 +301,117 @@ def get_identity():
     }
 
 
+RTC_DIR = "/sys/class/rtc/rtc0"
+
+
+def _read_first(*paths):
+    for p in paths:
+        try:
+            with open(p) as f:
+                return f.read().strip()
+        except Exception:  # noqa: BLE001
+            continue
+    return ""
+
+
+def get_rtc():
+    """RTC presence + whether its backup battery is being trickle-charged. The
+    Pi 5 has an RTC with a rechargeable backup cell on the J5 connector; a live
+    charging voltage + the kernel setting the clock from RTC at boot means time
+    survives a power cut."""
+    present = os.path.exists(RTC_DIR)
+    info = {"present": present, "ts": time.time()}
+    if not present:
+        info["reason"] = "no /sys/class/rtc/rtc0"
+        return info
+    epoch = None
+    try:
+        epoch = int(_read_first(f"{RTC_DIR}/since_epoch"))
+    except ValueError:
+        pass
+
+    def _uv(v):
+        try:
+            return int(v) / 1_000_000.0
+        except (TypeError, ValueError):
+            return None
+
+    cv_v = _uv(_read_first(f"{RTC_DIR}/device/rtc/rtc0/charging_voltage",
+                           f"{RTC_DIR}/charging_voltage"))
+    cvmax_v = _uv(_read_first(f"{RTC_DIR}/device/rtc/rtc0/charging_voltage_max",
+                              f"{RTC_DIR}/charging_voltage_max"))
+    synchronized = ntp = False
+    tz = ""
+    rc, so, _ = run(["timedatectl", "show", "-p", "NTPSynchronized",
+                     "-p", "NTP", "-p", "Timezone"], timeout=4)
+    if rc == 0:
+        for line in so.splitlines():
+            k, _, v = line.partition("=")
+            v = v.strip().lower()
+            if k == "NTPSynchronized":
+                synchronized = v in ("yes", "true", "1")
+            elif k == "NTP":
+                ntp = v in ("yes", "true", "1")
+            elif k == "Timezone":
+                tz = line.partition("=")[2].strip()
+    info.update({
+        "name": _read_first(f"{RTC_DIR}/name"),
+        "synchronized": synchronized,
+        "ntp_service": ntp,
+        "timezone": tz,
+        "system_time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "rtc_epoch": epoch,
+    })
+    if epoch is not None:
+        info["rtc_date"] = time.strftime("%Y-%m-%d", time.gmtime(epoch))
+        info["rtc_time"] = time.strftime("%H:%M:%S", time.gmtime(epoch))
+    if cv_v is not None:
+        info["charging_enabled"] = cv_v > 0
+        info["charging_voltage_v"] = round(cv_v, 3)
+    if cvmax_v is not None:
+        info["charging_voltage_max_v"] = round(cvmax_v, 3)
+    return info
+
+
+def get_battery():
+    """Best-effort probe for an optional external UPS fuel-gauge over I2C
+    (MAX1704x@0x36 or INA219@0x40-0x43). None is required; reports
+    available=false when no known chip is present."""
+    import glob
+    buses = sorted(int(p.rsplit("-", 1)[-1]) for p in glob.glob("/dev/i2c-*")
+                   if p.rsplit("-", 1)[-1].isdigit())
+    found = None
+    for bus in buses:
+        rc, so, _ = run(["i2cdetect", "-y", str(bus)], timeout=4)
+        if rc != 0:
+            continue
+        addrs = set()
+        for line in so.splitlines():
+            if ":" not in line:
+                continue
+            for tok in line.partition(":")[2].split():
+                if tok not in ("--", "UU"):
+                    try:
+                        addrs.add(int(tok, 16))
+                    except ValueError:
+                        pass
+        if 0x36 in addrs:
+            found = {"chip": "MAX1704x", "bus": bus, "addr": "0x36"}
+            break
+        hit = next((a for a in (0x40, 0x41, 0x42, 0x43) if a in addrs), None)
+        if hit is not None:
+            found = {"chip": "INA219", "bus": bus, "addr": hex(hit)}
+            break
+    if found:
+        return {"available": True, "chip": found, "scanned_buses": buses, "ts": time.time()}
+    return {
+        "available": False,
+        "reason": "no known UPS chip found (looked for MAX1704x@0x36, INA219@0x40-0x43)",
+        "scanned_buses": buses,
+        "ts": time.time(),
+    }
+
+
 def get_power():
     """Current power health + recent boot/undervoltage history from the
     watchdog (pams_watchdog.py). Lets Predator show 'is this Pi dropping out?'."""
@@ -326,6 +455,8 @@ def get_power():
     watchdog_up = bool(hb and (time.time() - hb.get("ts", 0)) < 180)
     return {
         "current_throttle": current,
+        "rtc": get_rtc(),
+        "battery": get_battery(),
         "heartbeat": hb,
         "watchdog_running": watchdog_up,
         "boots_seen": boots,
@@ -354,6 +485,109 @@ def get_services():
             {"name": unit, "kind": "systemd", "state": state or "unknown", "detail": desc or ""}
         )
     return {"services": out, "ts": time.time()}
+
+
+def _tcp_ok(host, port, timeout=2.0):
+    try:
+        with socket.create_connection((host, int(port)), timeout):
+            return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def get_selftest():
+    """One call that proves a site is healthy: containers, systemd units, MQTT,
+    InfluxDB, disk, the power watchdog, running pollers, and per-unit data
+    freshness. Critical checks drive overall ok; disk/watchdog/data are warnings."""
+    checks = []
+
+    def add(name, ok, detail, severity="critical"):
+        checks.append({"name": name, "ok": bool(ok), "detail": detail, "severity": severity})
+
+    # containers expected to be running
+    status_by = {}
+    rc, so, _ = run(["docker", "ps", "--format", "{{.Names}}\t{{.Status}}"])
+    if rc == 0 and so:
+        for line in so.splitlines():
+            p = line.split("\t")
+            if p and p[0]:
+                status_by[p[0]] = p[1] if len(p) > 1 else ""
+    for c in EXPECTED_CONTAINERS:
+        add(f"container:{c}", c in status_by, status_by.get(c, "not running"))
+
+    # systemd units
+    for unit in SYSTEMD_UNITS:
+        _, state, _ = run(["systemctl", "is-active", unit])
+        sev = "critical" if unit in CRITICAL_SERVICES else "warn"
+        add(f"service:{unit}", state == "active", state or "unknown", severity=sev)
+
+    # broker + timeseries DB reachable
+    add("mqtt", _tcp_ok(MQTT_HOST, MQTT_PORT), f"{MQTT_HOST}:{MQTT_PORT}")
+    influx_ok, influx_detail = False, "unreachable"
+    try:
+        with urllib.request.urlopen(INFLUX_URL, timeout=3) as r:
+            influx_ok = r.status in (200, 204)
+            influx_detail = f"HTTP {r.status}"
+    except Exception as e:  # noqa: BLE001
+        influx_detail = str(e)[:80]
+    add("influxdb", influx_ok, influx_detail)
+
+    # disk headroom (warning, not fatal)
+    try:
+        total, _used, free = shutil.disk_usage("/")
+        free_pct = 100.0 * free / total if total else 0.0
+        add("disk", free_pct >= DISK_MIN_FREE_PCT,
+            f"{free_pct:.1f}% free ({free // (1024 ** 3)}GB)", severity="warn")
+    except Exception as e:  # noqa: BLE001
+        add("disk", False, str(e)[:80], severity="warn")
+
+    # power watchdog heartbeat (warning)
+    pw = get_power()
+    add("watchdog", pw.get("watchdog_running", False),
+        "heartbeat fresh" if pw.get("watchdog_running") else "no recent heartbeat",
+        severity="warn")
+
+    # running pollers (info)
+    rc, so, _ = run(["pgrep", "-af", "pams_ip_poller.py"])
+    npoll = len([ln for ln in so.splitlines() if ln.strip()]) if rc == 0 else 0
+    add("pollers", True, f"{npoll} running", severity="info")
+
+    # per-unit data freshness (warning) from the ML service snapshot
+    stale_units, fresh_units = [], []
+    try:
+        with open(LAST_SEEN_FILE) as f:
+            last_seen = json.load(f)
+        now = time.time()
+        for unit, ts_ in last_seen.items():
+            age = now - float(ts_)
+            (stale_units if age > STALE_SECONDS else fresh_units).append(
+                {"unit": unit, "age_s": round(age, 1)})
+    except Exception:  # noqa: BLE001
+        pass
+    if stale_units:
+        detail = (f"{len(fresh_units)} fresh, {len(stale_units)} STALE: "
+                  + ", ".join(f"{s['unit']}({s['age_s']}s)" for s in stale_units))
+    elif fresh_units:
+        detail = f"{len(fresh_units)} units fresh"
+    else:
+        detail = "no units reporting yet"
+    add("data_freshness", not stale_units, detail,
+        severity="warn" if (fresh_units or stale_units) else "info")
+
+    crit_fail = [c for c in checks if not c["ok"] and c["severity"] == "critical"]
+    warn_fail = [c for c in checks if not c["ok"] and c["severity"] == "warn"]
+    return {
+        "ok": not crit_fail,
+        "checks": checks,
+        "summary": {
+            "passed": sum(1 for c in checks if c["ok"]),
+            "failed": sum(1 for c in checks if not c["ok"]),
+            "critical_failures": len(crit_fail),
+            "warnings": len(warn_fail),
+        },
+        "stale_units": stale_units,
+        "ts": time.time(),
+    }
 
 
 def get_capabilities():
@@ -676,6 +910,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, get_identity())
             elif u.path == "/api/power":
                 self._send(200, cached("power", 3, get_power))
+            elif u.path == "/api/selftest":
+                self._send(200, cached("selftest", 3, get_selftest))
             elif u.path == "/api/services":
                 self._send(200, cached("services", 4, get_services))
             elif u.path == "/api/capabilities":

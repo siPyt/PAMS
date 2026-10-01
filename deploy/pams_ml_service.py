@@ -18,6 +18,8 @@ Config via environment:
 
 import os
 import json
+import time
+import threading
 
 import paho.mqtt.client as mqtt
 
@@ -29,10 +31,123 @@ MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 IN_TOPIC = os.environ.get("IN_TOPIC", "pams/freezers/+")
 OUT_PREFIX = os.environ.get("OUT_PREFIX", "pams/scored")
 
+# Dead-man / staleness alerting: if a unit stops publishing (freezer offline,
+# poller died, cable pulled) we raise a retained alert on pams/alerts/<unit>.
+STALE_AFTER = float(os.environ.get("PAMS_STALE_SECONDS", "60"))
+STALE_CHECK = float(os.environ.get("PAMS_STALE_CHECK_SECONDS", "15"))
+ALERT_PREFIX = os.environ.get("PAMS_ALERT_PREFIX", "pams/alerts")
+LAST_SEEN_FILE = os.path.expanduser(os.environ.get("PAMS_LAST_SEEN_FILE", "~/pams_last_seen.json"))
+KNOWN_UNITS_FILE = os.path.expanduser(os.environ.get("PAMS_KNOWN_UNITS_FILE", "~/pams_known_units.json"))
+ALERTS_LOG = os.path.expanduser(os.environ.get("PAMS_ALERTS_LOG", "~/pams_alerts.jsonl"))
+
+_last_seen = {}          # unit -> wall-clock ts of its last reading
+_known_units = set()     # every unit ever seen (persisted, so a dead unit is still watched)
+_alerted = set()         # units currently flagged stale
+_lock = threading.Lock()
+CLIENT = None
+
 # Fields that are meta or already handled explicitly - everything else numeric is
 # treated as a real sensor channel and forwarded to the ML as-is.
 NON_SENSOR = {"unit_id", "temperature", "door_status", "health_score", "ts"}
 engine = PamsML()
+
+
+def _atomic_write(path, obj):
+    try:
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(obj, f)
+        os.replace(tmp, path)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _save_last_seen():
+    with _lock:
+        snapshot = dict(_last_seen)
+    _atomic_write(LAST_SEEN_FILE, snapshot)
+
+
+def _load_known_units():
+    try:
+        with open(KNOWN_UNITS_FILE) as f:
+            for u in json.load(f):
+                _known_units.add(u)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _save_known_units():
+    with _lock:
+        units = sorted(_known_units)
+    _atomic_write(KNOWN_UNITS_FILE, units)
+
+
+def _log_alert(rec):
+    try:
+        with open(ALERTS_LOG, "a") as f:
+            f.write(json.dumps(rec) + "\n")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _emit_alert(unit, stale, age, last_seen):
+    rec = {
+        "unit_id": unit,
+        "alert": "stale" if stale else "ok",
+        "severity": "critical" if stale else "info",
+        "age_s": round(age, 1),
+        "threshold_s": STALE_AFTER,
+        "last_seen": last_seen,
+        "ts": time.time(),
+    }
+    if CLIENT is not None:
+        try:
+            CLIENT.publish(f"{ALERT_PREFIX}/{unit}", json.dumps(rec), qos=1, retain=True)
+        except Exception:  # noqa: BLE001
+            pass
+    _log_alert(rec)
+    print(f"ALERT {unit}: {rec['alert'].upper()} (age={rec['age_s']}s, threshold={STALE_AFTER}s)")
+
+
+def _stale_monitor():
+    """Background loop: flag units whose last reading is older than STALE_AFTER,
+    and clear the flag when they resume."""
+    while True:
+        time.sleep(STALE_CHECK)
+        now = time.time()
+        with _lock:
+            units = list(_known_units)
+            seen = dict(_last_seen)
+            alerted = set(_alerted)
+        for unit in units:
+            last = seen.get(unit)
+            if last is None:
+                continue
+            age = now - last
+            if age > STALE_AFTER and unit not in alerted:
+                with _lock:
+                    _alerted.add(unit)
+                _emit_alert(unit, True, age, last)
+            elif age <= STALE_AFTER and unit in alerted:
+                with _lock:
+                    _alerted.discard(unit)
+                _emit_alert(unit, False, age, last)
+
+
+def _mark_seen(unit_id):
+    now = time.time()
+    with _lock:
+        _last_seen[unit_id] = now
+        new_unit = unit_id not in _known_units
+        _known_units.add(unit_id)
+        was_alerted = unit_id in _alerted
+        _alerted.discard(unit_id)
+    _save_last_seen()
+    if new_unit:
+        _save_known_units()
+    if was_alerted:
+        _emit_alert(unit_id, False, 0.0, now)
 
 
 def on_connect(client, userdata, flags, reason_code, properties=None):
@@ -51,6 +166,9 @@ def on_message(client, userdata, msg):
         return
 
     unit_id = data.get("unit_id") or msg.topic.rsplit("/", 1)[-1]
+    # A reading arriving at all means this unit is alive - mark it before anything
+    # else so the dead-man monitor and /api/selftest see it as fresh.
+    _mark_seen(unit_id)
     temp = data.get("temperature")
     if temp is None:
         return
@@ -119,11 +237,22 @@ def on_message(client, userdata, msg):
 
 
 def main():
+    global CLIENT
+    _load_known_units()
+    # Seed known units with a fresh timestamp so a restart gives them one grace
+    # window before being flagged (rather than alerting instantly on boot).
+    now = time.time()
+    with _lock:
+        for u in _known_units:
+            _last_seen.setdefault(u, now)
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    CLIENT = client
     client.on_connect = on_connect
     client.on_message = on_message
     client.connect(MQTT_HOST, MQTT_PORT, 60)
+    threading.Thread(target=_stale_monitor, daemon=True).start()
     print(f"PAMS ML service: {IN_TOPIC} -> {OUT_PREFIX}/<unit>")
+    print(f"Dead-man alerts: stale after {STALE_AFTER}s -> {ALERT_PREFIX}/<unit>")
     print(f"Active models: {', '.join(ACTIVE_MODELS)}")
     try:
         client.loop_forever()

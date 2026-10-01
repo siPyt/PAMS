@@ -54,6 +54,14 @@ MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 POLL = float(os.environ.get("POLL_SECONDS", "5"))
 
+# Store-and-forward: if the broker/network is down, readings are buffered to a
+# local JSONL spool and replayed on reconnect so no data is lost.
+SPOOL_FILE = os.path.expanduser(
+    os.environ.get("PAMS_SPOOL_FILE", f"~/pams_spool_{UNIT}.jsonl"))
+SPOOL_MAX = int(os.environ.get("PAMS_SPOOL_MAX", "20000"))  # cap buffered readings
+TOPIC = f"pams/freezers/{UNIT}"
+_connected = False
+
 
 def primary_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -157,15 +165,98 @@ def load_points():
         return {}
 
 
+def _on_connect(client, userdata, flags, reason_code, properties=None):
+    global _connected
+    _connected = True
+    print(f"MQTT connected (rc={reason_code})", flush=True)
+
+
+def _on_disconnect(client, userdata, *args):
+    global _connected
+    _connected = False
+    print("MQTT disconnected; buffering readings to spool", flush=True)
+
+
+def _spool_append(line):
+    try:
+        with open(SPOOL_FILE, "a") as f:
+            f.write(line + "\n")
+    except Exception as e:  # noqa: BLE001
+        print(f"spool write failed: {e}", flush=True)
+
+
+def _spool_trim():
+    """Keep only the most recent SPOOL_MAX readings so the buffer can't grow
+    without bound during a long outage."""
+    try:
+        with open(SPOOL_FILE) as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        return
+    except Exception:  # noqa: BLE001
+        return
+    if len(lines) > SPOOL_MAX:
+        with open(SPOOL_FILE, "w") as f:
+            f.writelines(lines[-SPOOL_MAX:])
+
+
+def _spool_flush(client):
+    """Replay buffered readings oldest-first; stop at the first failure and keep
+    the remainder for next time."""
+    if not _connected or not os.path.exists(SPOOL_FILE):
+        return
+    try:
+        with open(SPOOL_FILE) as f:
+            lines = [ln.strip() for ln in f if ln.strip()]
+    except Exception:  # noqa: BLE001
+        return
+    if not lines:
+        return
+    remaining = []
+    for idx, ln in enumerate(lines):
+        info = client.publish(TOPIC, ln, qos=0)
+        if info.rc != mqtt.MQTT_ERR_SUCCESS:
+            remaining = lines[idx:]
+            break
+    if remaining:
+        with open(SPOOL_FILE, "w") as f:
+            f.write("\n".join(remaining) + "\n")
+    else:
+        try:
+            os.remove(SPOOL_FILE)
+        except OSError:
+            pass
+    flushed = len(lines) - len(remaining)
+    if flushed:
+        print(f"flushed {flushed} buffered readings from spool", flush=True)
+
+
+def _publish(client, payload):
+    """Publish if connected, else append to the spool. Returns True if sent live."""
+    line = json.dumps(payload)
+    if _connected:
+        info = client.publish(TOPIC, line, qos=0)
+        if info.rc == mqtt.MQTT_ERR_SUCCESS:
+            return True
+    _spool_append(line)
+    _spool_trim()
+    return False
+
+
 def main():
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-    client.connect(MQTT_HOST, MQTT_PORT, 60)
+    client.on_connect = _on_connect
+    client.on_disconnect = _on_disconnect
+    # connect_async + loop_start so the poller starts (and buffers) even if the
+    # broker is down at launch; paho reconnects in the background.
+    client.connect_async(MQTT_HOST, MQTT_PORT, 60)
     client.loop_start()
-    print(f"IP poller: unit={UNIT} device={DEVICE} bind={BIND} every {POLL}s -> pams/freezers/{UNIT}", flush=True)
+    print(f"IP poller: unit={UNIT} device={DEVICE} bind={BIND} every {POLL}s -> {TOPIC}", flush=True)
 
     addr = None
     fails = 0
     while True:
+        _spool_flush(client)
         if addr is None or fails >= 3:
             addr = resolve_address()
             fails = 0
@@ -202,7 +293,7 @@ def main():
                 payload["temperature"] = payload[tk]
 
         if "temperature" in payload:
-            client.publish(f"pams/freezers/{UNIT}", json.dumps(payload), qos=0)
+            _publish(client, payload)
             print(f"{UNIT}: {read_count} points, temp={payload['temperature']}", flush=True)
         time.sleep(POLL)
 
